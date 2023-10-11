@@ -1,0 +1,889 @@
+---
+title: "paper1-wrangling"
+author: "Shelby Sturrock"
+date: "26/01/2022"
+output: 
+  html_document:
+    keep_md: true
+---
+
+```{r setup, include=FALSE,results=FALSE,echo=FALSE}
+  knitr::opts_chunk$set(echo = TRUE)
+  library(dplyr)
+  library(lubridate)
+  library(ggplot2)
+  library(tableone)
+  library(table1)
+  library(tidyr)
+  library(lme4)
+  library(gridExtra)
+  knitr::opts_knit$set(root.dir = '/Users/shelbysturrock/Library/Mobile Documents/com~apple~CloudDocs/Documents/Documents - Shelby’s MacBook Pro/School/UofT/Dissertation/PAPER 1 - INTERACT')
+```
+
+
+# Paper 1: INTERACT
+
+## 1. Read in and process data
+
+### Sensdoc data
+
+Objective physical activity as measured by research-grade accelerometers provided to participants. 
+
+Read in SD data: 
+```{r,results="hide"}
+  sensdoc<-list.files("Data/sensdoc data", pattern="*.csv", full.names=TRUE)
+  sensdoc_csv<-lapply(sensdoc, read.csv)
+  names(sensdoc_csv)<-paste(gsub("Data/sensdoc data/|.csv|\\_top.*","",sensdoc),"_sd",sep="")
+  names(sensdoc_csv)<-ifelse(grepl("saskatoon",names(sensdoc_csv)),gsub("saskatoon","skt",names(sensdoc_csv)),
+                             ifelse(grepl("montreal",names(sensdoc_csv)),gsub("montreal","mtl",names(sensdoc_csv)),
+                                                                         gsub("vancouver","van",names(sensdoc_csv))))
+  names(sensdoc_csv)<-gsub("_0","",names(sensdoc_csv))
+  list2env(sensdoc_csv,envir=.GlobalEnv)
+  rm(sensdoc,sensdoc_csv)
+```
+
+Reformat date variables
+```{r}
+# wave 1
+  mtl1_sd$date<-as.Date(mtl1_sd$utcdate,"%Y-%m-%d")
+  van1_sd$date<-as.Date(van1_sd$utcdate,"%Y-%m-%d")
+  skt1_sd$date<-as.Date(skt1_sd$utcdate,"%Y-%m-%d")
+# wave 2
+  mtl2_sd$date<-as.Date(mtl2_sd$utcdate,"%Y-%m-%d")
+  van2_sd$date<-as.Date(van2_sd$utcdate,"%Y-%m-%d")
+  skt2_sd$date<-as.Date(skt2_sd$utcdate,"%Y-%m-%d")
+```
+
+### Eligibility/survey data
+
+Data from the eligibility survey. 
+
+```{r}
+  eligib<-list.files("/Users/shelbysturrock/Library/Mobile Documents/com~apple~CloudDocs/Documents/Documents - Shelby’s MacBook Pro/School/UofT/Dissertation/PAPER 1 - INTERACT/Data/surveys/eligibility", pattern="*.csv", full.names=TRUE)
+  eligib_csv<-lapply(eligib, read.csv)
+  names(eligib_csv)<-paste(gsub("/Users/shelbysturrock/Library/Mobile Documents/com~apple~CloudDocs/Documents/Documents - Shelby’s MacBook Pro/School/UofT/Dissertation/PAPER 1 - INTERACT/Data/surveys/eligibility/eligibility_|.csv|\\_main.*","",eligib),"_eligib",sep="")
+  names(eligib_csv)<-ifelse(grepl("1",names(eligib_csv)),gsub("_","1_",gsub("1","",names(eligib_csv))),
+                     ifelse(grepl("new_",names(eligib_csv)),paste(gsub("_","2_",gsub("2|new|","",names(eligib_csv))),"_new",sep=""),
+                            gsub("_","2_",gsub("2","",names(eligib_csv)))))
+# names(eligib_csv)<-ifelse(grepl("1",names(eligib_csv)),paste(gsub("1","",names(eligib_csv)),"1",sep=""),
+#                                                        paste(gsub("2","",names(eligib_csv)),"2",sep=""))
+  list2env(eligib_csv,envir=.GlobalEnv)
+  rm(eligib,eligib_csv)
+```
+
+### Health survey
+
+Read in health survey data
+```{r}
+  health<-list.files("/Users/shelbysturrock/Library/Mobile Documents/com~apple~CloudDocs/Documents/Documents - Shelby’s MacBook Pro/School/UofT/Dissertation/PAPER 1 - INTERACT/Data/surveys/health", pattern="*.csv", full.names=TRUE)
+  health_csv<-lapply(health, read.csv)
+  names(health_csv)<-paste(gsub("/Users/shelbysturrock/Library/Mobile Documents/com~apple~CloudDocs/Documents/Documents - Shelby’s MacBook Pro/School/UofT/Dissertation/PAPER 1 - INTERACT/Data/surveys/health/health_|.csv|\\_main.*","",health),"_health",sep="")
+  names(health_csv)<-ifelse(grepl("1",names(health_csv)),gsub("_","1_",gsub("1","",names(health_csv))),
+                     ifelse(grepl("new_",names(health_csv)),paste(gsub("_","2_",gsub("2|new|","",names(health_csv))),"_new",sep=""),
+                            gsub("_","2_",gsub("2","",names(health_csv)))))
+  list2env(health_csv,envir=.GlobalEnv)
+  rm(health,health_csv)
+```
+
+Health columns of interest and combine health survey data
+```{r}
+# wave 1 
+  skt1hlt<-skt1_health %>% dplyr::select(interact_id,wave_id,gender,children,income,marital_status,dwelling_type,employment,education)
+  mtl1hlt<-mtl1_health %>% dplyr::select(colnames(skt1hlt))
+  van1hlt<-van1_health %>% dplyr::select(colnames(skt1hlt))
+
+# wave  2
+  skt2hlt<-skt2_health %>% dplyr::select(colnames(skt1hlt))
+  mtl2hlt<-mtl2_health %>% dplyr::select(colnames(skt1hlt))
+  van2hlt<-van2_health %>% dplyr::select(colnames(skt1hlt))
+  
+# wave 2 new
+  skt2hlt_new<-skt2_health_new %>% dplyr::select(colnames(skt1hlt))
+  mtl2hlt_new<-mtl2_health_new %>% dplyr::select(colnames(skt1hlt))
+  van2hlt_new<-van2_health_new %>% dplyr::select(colnames(skt1hlt))
+      
+# combine health surveys into one data frame
+  health<-rbind(skt1hlt,mtl1hlt,van1hlt,
+                skt2hlt,mtl2hlt,van2hlt,
+                skt2hlt_new,mtl2hlt_new,van2hlt_new)
+  rm(list=ls()[grepl("_health|hlt",ls())])
+```
+
+
+## 2. Process/clean demographic, health data; merge with SD data
+
+### Age: calculate using data from from the eligibility survey
+
+#### Saskatoon: Review data
+
+Assess for missing ages - Saskatoon, wave 1
+```{r}
+length(skt1_eligib[skt1_eligib$birth_date=="",]$interact_id)
+```
+18 participants have missing date of birth in the wave 1 eligibility survey. 
+
+Assess for missing ages - Saskatoon, wave 2
+```{r}
+length(skt2_eligib[skt2_eligib$birth_date=="",]$interact_id)
+```
+0 participants are missing date of brith in the wave 2 eligibility survey. 
+
+
+Is everyone in the wave 1 eligbility survey also in wave 2 eligibility survey? If so, we can steal DOB from the wave 2 eligibility survey to assess age in wave 1. 
+
+```{r}
+length(skt2_eligib[!(skt2_eligib$interact_id %in% skt1_eligib$interact_id),]$interact_id)
+```
+
+Confirmed: everyone in skt_eligb2 is in skt1_eligib -- if any of these participants have a missing DOB in wave 1, it can be determined based on wave 2 survey. 
+
+Since there are no missing DOB in the wave 2 eligibility survey, link the wave 1 and wave 2 eligibility survey to update DOB for those people whose age is NA (missing DOB or aged < 18)
+
+For wave 1:
+
+  Calculate age using date_of_birth in eligib1, where available.
+  
+  Where NOT available, pull birth_date from eligib2. 
+  
+Calculate age wave 2: 
+
+  Update age for those people in wave 1 and wave 2 (mtl2_eligib). 
+  
+  Calculate age for those people new in wave 2 (mtl2_eligib_new).
+  
+#### Saskatoon: Calculate age in wave 1
+
+Extract interact_id and birth_date from wave 2 eligibility survey
+```{r}
+  skt_age2<-skt2_eligib %>% dplyr::select(interact_id,birth_date)
+```
+
+Re-code birth_date to missing if cell is empty or contains invalid DOB
+```{r}
+  skt1_eligib[skt1_eligib$birth_date =="" | grepl("0080",skt1_eligib$birth_date),]$birth_date<-NA
+```
+
+If birth_date is NOT missing, calculate age as "date_of_survey" - "birth_date", otherwise set age as missing. Also set as missing if age is < 18
+```{r}
+  skt1_eligib$age<-ifelse(!is.na(skt1_eligib$birth_date),
+                          round((difftime(as.Date(skt1_eligib$date_of_survey,origin="1970-01-01"),                                                       as.Date(skt1_eligib$birth_date,origin="1970-01-01"),unit="weeks")/52.25),0),NA)
+  summary(skt1_eligib$age)
+  skt1_eligib[!is.na(skt1_eligib$age) & skt1_eligib$age < 18,]$age<-NA
+  skt1_eligib<-skt1_eligib %>% dplyr::select(interact_id,age,date_of_survey,birth_date)
+```
+
+Merge with birth_date from eligib2, by interact_id, to populate birth_date where it is currently missing
+```{r}
+  skt1_eligib<-merge(skt1_eligib,skt_age2,by="interact_id",all.x=TRUE)
+```
+
+Where age is missing in eligib1, and it is NOT missing in eligib2, calculate age as "date_of_survey" - "birth_date"
+```{r}
+  skt1_eligib$age<-ifelse(is.na(skt1_eligib$age) & !is.na(skt1_eligib$birth_date.y),
+                          round((difftime(as.Date(skt1_eligib$date_of_survey,origin="1970-01-01"),
+                          as.Date(skt1_eligib$birth_date.y,origin="1970-01-01"),unit="weeks")/52.25),0),skt1_eligib$age) 
+  length(skt1_eligib[is.na(skt1_eligib$age),]$interact_id)
+    # decreased NA age from 86 records to 67 records (reduction of 19 -- the number of people missing DOB in wave 1 but DOB populated in wave 2)
+```
+
+Merge age into the wave 1 sd data
+```{r}
+    skt1_sd<-merge(skt1_sd[,colnames(skt1_sd)!="age"],skt1_eligib,by="interact_id",all.x=TRUE)
+```
+
+
+#### Saskatoon: Calculate age in wave 2
+
+Age for wave 2 - calculate age at time of survey completion based on eligibility survey.
+
+Start by simplifying the wave 2 eligibility data (just interact_id, birth_date, date_of_survey) 
+```{r}
+  skt2_eligib<-skt2_eligib %>% dplyr::select(interact_id,birth_date,date_of_survey)
+```
+
+Pull the same columns from "new" eligibility survey (presumably new participants?)
+```{r}
+  skt2_eligib_new<-skt2_eligib_new %>% dplyr::select(colnames(skt2_eligib))
+```
+
+Create a list of participants with data in the wave 2 eligibility surveys (for existing and new participants) and then
+```{r}
+  skt2_eligib<-distinct(rbind(skt2_eligib,skt2_eligib_new))
+```
+
+Calculate age at time of survey completion 
+```{r}
+  skt2_eligib$age<-ifelse(!is.na(skt2_eligib$birth_date),
+                          round((difftime(as.Date(skt2_eligib$date_of_survey,origin="1970-01-01"),                                                                       as.Date(skt2_eligib$birth_date,origin="1970-01-01"),unit="weeks")/52.25),0),NA)
+```
+
+Replace implausibly small ages with NA
+```{r}
+  skt2_eligib[!is.na(skt2_eligib$age) & skt2_eligib$age < 18,]$age<-NA
+  skt2_eligib<-skt2_eligib %>% dplyr::select(interact_id,age)
+  skt1_eligib<-skt1_eligib %>% dplyr::select(interact_id,age)
+```
+
+Merge age into the wave 2 sd data
+```{r}
+  skt2_sd<-merge(skt2_sd,skt2_eligib,by="interact_id",all.x=TRUE)
+```
+
+Note: 36 people (everyoen with a missing DOB/age in wave 2) are NOT in either the wave 1 or wave 2 eligibility survey
+```{r}
+  length(unique(skt2_sd[is.na(skt2_sd$age),]$interact_id))
+```
+
+
+#### Montreal: Review data
+
+```{r}
+  length(mtl1_eligib[mtl1_eligib$birth_date=="",]$interact_id) # no missing DOB
+```
+
+```{r}
+  summary(as.factor(mtl2_eligib$birth_date)) # no DOB column
+```
+
+```{r}
+  length(mtl2_eligib$interact_id %in% mtl1_eligib$interact_id) # confirmed: everyone in mtl_eligb2 is in mtl1_eligib   
+  length(mtl1_eligib[mtl2_eligib_new$birth_date=="",]$interact_id) # no missing DOB
+```
+
+  Calculate age for everyone in wave 1 -- "date_of_survey" - "birth_date"
+  
+  Calculate age in wave 2:
+  
+   Update age for those people in wave 1 and wave 2 (mtl2_eligib) 
+    
+   Calculate age for those people new in wave 2 (mtl2_eligib_new)
+
+#### Montreal: Calculate age in wave 1
+
+There are no participants with a missing DOB. As a result, age can be calculated as "date_of_survey" minus "birth_date" for all participants
+```{r}
+  mtl1_eligib$age<-ifelse(!is.na(mtl1_eligib$birth_date),
+                          round((difftime(as.Date(mtl1_eligib$date_of_survey,origin="1970-01-01"),
+                                          as.Date(mtl1_eligib$birth_date,origin="1970-01-01"),unit="weeks")/52.25),0),NA)
+# select ID, age
+  #mtl_age1_merge<-mtl1_eligib %>% dplyr::select(interact_id,age)
+```
+
+Merge age into the wave 1 sd data
+```{r}
+# merge age with wave 1 sd data
+  mtl1_sd<-merge(mtl1_sd[,colnames(mtl1_sd)!="age"],
+                 mtl1_eligib[,colnames(mtl1_eligib) %in% c("interact_id","age")],
+                 by="interact_id",all.x=TRUE)
+```
+
+#### Montreal: Calculate age in wave 2
+
+Pull birth_date from wave 1 eligibility survey; merge with wave 2
+```{r}
+  mtl_age1<-mtl1_eligib %>% dplyr::select(interact_id,birth_date)
+  mtl2_eligib<-merge(mtl2_eligib,mtl_age1,by="interact_id")
+```
+
+Start by simplifying the wave 2 eligibility data (just interact_id, birth_date, date_of_survey) 
+```{r}
+ mtl2_eligib<-mtl2_eligib %>% dplyr::select(interact_id,birth_date,date_of_survey)
+```
+
+Pull the same columns from "new" eligibility survey (presumably new participants?)
+```{r}
+ mtl2_eligib_new<-mtl2_eligib_new %>% dplyr::select(colnames(mtl2_eligib))
+```
+
+Create a list of participants with data in the wave 2 eligibility surveys (for existing and new participants) and then
+```{r}
+ mtl2_eligib<-distinct(rbind(mtl2_eligib,mtl2_eligib_new))
+```
+
+Calculate age at time of survey completion 
+```{r}
+  mtl2_eligib$age<-ifelse(!is.na(mtl2_eligib$birth_date),
+                          round((difftime(as.Date(mtl2_eligib$date_of_survey,origin="1970-01-01"),
+                                          as.Date(mtl2_eligib$birth_date,origin="1970-01-01"),unit="weeks")/52.25),0),NA)
+```
+
+Merge age with wave 2 sd data
+```{r}
+  mtl2_sd<-merge(mtl2_sd[,colnames(mtl2_sd)!="age"],mtl2_eligib,by="interact_id",all.x=TRUE)
+```
+
+
+#### Vancouver: Review data
+
+```{r}
+  length(van1_eligib[van1_eligib$birth_date=="",]$interact_id) # no missing DOB
+```
+
+```{r}
+  summary(as.factor(van2_eligib$birth_date)) # no DOB column
+```
+
+```{r}
+  length(van2_eligib$interact_id %in% van1_eligib$interact_id) # confirmed: everyone in van_eligb2 is in van1_eligib 
+  length(mtl1_eligib[van2_eligib_new$birth_date=="",]$interact_id) # no missing DOB
+```
+
+ Calculate age for everyone in wave 1 -- "date_of_survey" - "birth_date"
+ 
+ Calculate age in wave 2:
+ 
+   Update age for those people in wave 1 and wave 2 (van2_eligib) 
+    
+   Calculate age for those people new in wave 2 (van2_eligib_new)
+    
+
+#### Vancouver: Calculate age in wave 1
+
+There are no participants with a missing DOB. As a result, age can be calculated as "date_of_survey" minus "birth_date" for all participants
+```{r}
+  van1_eligib$age<-ifelse(!is.na(van1_eligib$birth_date),
+                          round((difftime(as.Date(van1_eligib$date_of_survey,origin="1970-01-01"),
+                                          as.Date(van1_eligib$birth_date,origin="1970-01-01"),unit="weeks")/52.25),0),NA)
+
+  #van_age1_merge<-van1_eligib %>% dplyr::select(interact_id,age)
+```
+
+Merge age into the wave 1 sd data
+```{r}
+  van1_sd<-merge(van1_sd[,colnames(van1_sd)!="age"],
+                 van1_eligib[,colnames(van1_eligib) %in% c("interact_id","age")],
+                 by="interact_id",all.x=TRUE)
+```
+
+#### Vancouver: Calculate age in wave 2
+
+Pull birth_date from wave 1 eligibility survey; merge with wave 2
+```{r}
+  van_age1<-van1_eligib %>% dplyr::select(interact_id,birth_date)
+  van2_eligib<-merge(van2_eligib,van_age1,by="interact_id")
+```
+
+Start by simplifying the wave 2 eligibility data (just interact_id, birth_date, date_of_survey) 
+```{r}
+  van2_eligib<-van2_eligib %>% dplyr::select(interact_id,birth_date,date_of_survey)
+```
+
+Pull the same columns from "new" eligibility survey (presumably new participants?)
+```{r}
+  van2_eligib_new<-van2_eligib_new %>% dplyr::select(colnames(van2_eligib))
+```
+
+Create a list of participants with data in the wave 2 eligibility surveys (for existing and new participants) and then
+```{r}
+  van2_eligib<-distinct(rbind(van2_eligib,van2_eligib_new))
+```
+
+Calculate age at time of survey completion 
+```{r}
+  van2_eligib$age<-ifelse(!is.na(van2_eligib$birth_date),
+                          round((difftime(as.Date(van2_eligib$date_of_survey,origin="1970-01-01"),
+                                          as.Date(van2_eligib$birth_date,origin="1970-01-01"),unit="weeks")/52.25),0),NA)
+          
+```
+
+Merge age with wave 2 sd data
+```{r}
+  van2_sd<-merge(van2_sd[,colnames(van2_sd)!="age"],van2_eligib,by="interact_id",all.x=TRUE)
+```
+
+Remove eligibility datasets
+```{r}
+  rm(van1_eligib,van2_eligib,van2_eligib_new,skt1_eligib,skt2_eligib,skt2_eligib_new,mtl1_eligib,mtl2_eligib,mtl2_eligib_new,
+     mtl_age1,skt_age2,van_age1)
+```
+
+
+## 3. Prep SD data
+
+### Combine all SD data into single dataframe
+
+Combine SD data into a single dataframe: 
+```{r}
+# wave 1
+  mtl1_sd<-mtl1_sd %>% dplyr::select(interact_id,utcdate,lat,lon,easting,northing,zone,in_city,
+                                     x_count,y_count,z_count,summary_count,wearing,activity_levels,date,age,
+                                     wave_id,city_id)
+  van1_sd<-van1_sd %>% dplyr::select(colnames(mtl1_sd))
+  skt1_sd<-skt1_sd %>% dplyr::select(colnames(mtl1_sd))
+  
+# wave 2
+  mtl2_sd<-mtl2_sd %>% dplyr::select(colnames(mtl1_sd))
+  van2_sd<-van2_sd %>% dplyr::select(colnames(mtl2_sd))
+  skt2_sd<-skt2_sd %>% dplyr::select(colnames(mtl2_sd))
+  
+# create a combined datasets
+  sd<-rbind(skt1_sd,mtl1_sd,van1_sd,
+            skt2_sd,mtl2_sd,van2_sd)
+```
+
+Add age_cat variable
+```{r}
+  sd$age_cat<-ifelse(!is.na(sd$age) & sd$age < 30,"18-29",
+              ifelse(!is.na(sd$age) & sd$age >= 30 & sd$age < 50,"30-49",
+              ifelse(!is.na(sd$age) & sd$age >= 50 & sd$age < 70,"50-69",
+              ifelse(!is.na(sd$age) & sd$age >= 70,"70+","missing"))))
+```
+
+Test: wearing by wave_id and in_city by wave_id
+```{r}
+print("wearing:")
+table(sd$wearing,sd$wave_id)
+print(" ")
+print("in_city:")
+table(sd$in_city,sd$wave_id)
+```
+
+
+### Aggregate PA data at the level of the person-day
+
+*NEW*: Create new activity_levels variable using logic from the wave 1 baseline paper (applied to x-count, as in the baseline paper)
+```{r}
+  sd<-sd %>% mutate(activity_levels_shelby =  case_when(x_count < 100 ~ "sedentary",
+                                                  		  x_count >= 100 & x_count <= 1951 ~ "light",
+                                                  		  x_count >= 1951 & x_count <= 5724 ~ "moderate",
+                                                  	    x_count >= 5725 ~ "vigorous"))
+```
+
+Remove individual city-wave dataframes
+```{r}
+  rm(skt1_sd,mtl1_sd,van1_sd,
+     skt2_sd,mtl2_sd,van2_sd)
+```
+
+Create binary indicators for MVPA, sedentary and LPA using (a) activity_levels ("Old", from the compute canada data) and (b) activity_levels_shelby (calculated above using threshold pulled from Dan's baseline paper code)
+```{r}
+  sd$mvpaOld<-ifelse(sd$activity_levels %in% c("moderate","vigorous"),1,0)
+  sd$lightOld<-ifelse(sd$activity_levels=="light",1,0)
+  sd$sbOld<-ifelse(sd$activity_levels=="sedentary",1,0)
+  
+  sd$mvpa<-ifelse(sd$activity_levels_shelby %in% c("moderate","vigorous"),1,0)
+  sd$light<-ifelse(sd$activity_levels_shelby == "light",1,0)
+  sd$sb<-ifelse(sd$activity_levels_shelby == "sedentary",1,0)
+```
+
+*NEW*: Create 3 versions of the SD data to work from: 
+1. All minutes
+2. Minutes where wearing == 1
+3. Minutes where wearing == 1 & in_city == 1
+```{r}
+# 1. all minutes
+  sd_all<-sd
+# 2. minutes where wearing == 1
+  wearing<-sd[sd$wearing==1,]
+# 3. minutes where wearing == 1 & in_city == 1
+  wearingCity<-sd[sd$in_city==1 & sd$wearing==1,]
+```
+
+Add additional summary measures
+```{r}
+# 1. all person days
+  sd_all<-sd_all %>% group_by(interact_id,date,city_id,wave_id) %>% 
+             mutate(minutes=length(date),
+                    wear=sum(wearing),
+                # using original activity_levels:
+                    total_mvpa_minutesOld=sum(mvpaOld),
+                    total_light_pa_minutesOld=sum(lightOld),
+                    total_sed_minutesOld=sum(sbOld),
+                # using updated activity_levels_shelby: 
+                    total_mvpa_minutes=sum(mvpa),
+                    total_light_pa_minutes=sum(light),
+                    total_sed_minutes=sum(sb))
+
+# 2. person days where wearing == 1
+  sd_wearing<-wearing %>% group_by(interact_id,date,city_id,wave_id) %>% 
+             mutate(minutes=length(date),
+                    wear=sum(wearing),
+                # using original activity_levels:
+                    total_mvpa_minutesOld=sum(mvpaOld),
+                    total_light_pa_minutesOld=sum(lightOld),
+                    total_sed_minutesOld=sum(sbOld),
+                # using updated activity_levels_shelby: 
+                    total_mvpa_minutes=sum(mvpa),
+                    total_light_pa_minutes=sum(light),
+                    total_sed_minutes=sum(sb))
+  
+# 3. person-days with wearing == 1 and in_city == 1
+  sd_wearingCity<-wearingCity %>% group_by(interact_id,date,city_id,wave_id) %>% 
+             mutate(minutes=length(date),
+                    wear=sum(wearing),
+                # using original activity_levels:
+                    total_mvpa_minutesOld=sum(mvpaOld),
+                    total_light_pa_minutesOld=sum(lightOld),
+                    total_sed_minutesOld=sum(sbOld),
+                # using updated activity_levels_shelby: 
+                    total_mvpa_minutes=sum(mvpa),
+                    total_light_pa_minutes=sum(light),
+                    total_sed_minutes=sum(sb))
+```
+
+Group at the individual level 
+```{r,warning=FALSE,message=FALSE}
+# 1. all person-days
+  sd_all <- sd_all %>% group_by(interact_id, date, city_id, wave_id) %>%
+    summarize(
+      # wear time
+        wearing = mean(wearing, na.rm = TRUE), # proportion of time while wearing
+        minutes = mean(minutes, na.rm = TRUE),
+        wear = mean(wear, na.rm = TRUE), # minutes of wear time
+      # activity using activity_levels_shelby:
+        mean_mvpa_sdOld = mean(total_mvpa_minutesOld, na.rm = TRUE),
+        mean_sed_sdOld = mean(total_sed_minutesOld, na.rm = TRUE), 
+        mean_light_sdOld = mean(total_light_pa_minutesOld, na.rm = TRUE), 
+      # activity using original activity_levels: 
+        mean_mvpa_sd = mean(total_mvpa_minutes, na.rm = TRUE),
+        mean_sed_sd = mean(total_sed_minutes, na.rm = TRUE), 
+        mean_light_sd = mean(total_light_pa_minutes, na.rm = TRUE), 
+      # demographics: 
+        age = mean(age),
+        age_cat = identity(age_cat))
+  sd_all <- distinct(sd_all)
+  
+# 2. person-days where wearing == 1
+  sd_wearing <- sd_wearing %>% group_by(interact_id, date, city_id, wave_id) %>%
+    summarize(
+      # wear time
+        wearing = mean(wearing, na.rm = TRUE), # proportion of time while wearing
+        minutes = mean(minutes, na.rm = TRUE),
+        wear = mean(wear, na.rm = TRUE), # minutes of wear time
+      # activity using original activity_levels: 
+        mean_mvpa_sd = mean(total_mvpa_minutes, na.rm = TRUE),
+        mean_sed_sd = mean(total_sed_minutes, na.rm = TRUE), 
+        mean_light_sd = mean(total_light_pa_minutes, na.rm = TRUE), 
+      # demographics: 
+        age = mean(age),
+        age_cat = identity(age_cat))
+  sd_wearing <- distinct(sd_wearing)
+  
+# 3. person-days where in_city == 1 and wearing == 1
+  sd_wearingCity <- sd_wearingCity %>% group_by(interact_id, date, city_id, wave_id) %>%
+    summarize(
+      # wear time
+        wearing = mean(wearing, na.rm = TRUE), # proportion of time while wearing
+        minutes = mean(minutes, na.rm = TRUE),
+        wear = mean(wear, na.rm = TRUE), # minutes of wear time
+      # activity using original activity_levels: 
+        mean_mvpa_sd = mean(total_mvpa_minutes, na.rm = TRUE),
+        mean_sed_sd = mean(total_sed_minutes, na.rm = TRUE), 
+        mean_light_sd = mean(total_light_pa_minutes, na.rm = TRUE), 
+      # demographics: 
+        age = mean(age),
+        age_cat = identity(age_cat))
+  sd_wearingCity <- distinct(sd_wearingCity)
+```
+
+Exclude days where wear = 0 or mvpa > wear (deletes one participant from Saskatoon in wave 1 -- only has one minute of accelerometer data but wear == 0)
+```{r}
+# 1. all person-days
+  # there are 5671 person-days total. We'll filter out the following 106 person-days to yield a TOP with 5565 person-days:
+        # (a) more minutes of mvpa than wear time (21 person-days)
+              length(sd_all[sd_all$mean_mvpa_sd > sd_all$wear,]$interact_id)
+        # (b) the same number of wear and mvpa minutes with at least 1 sedentary or lightly active minutes (85 person-days)  
+              length(sd_all[sd_all$mean_mvpa_sd == sd_all$wear & !(sd_all$mean_light_sd == 0 & sd_all$mean_sed_sd == 0),]$interact_id)
+    # there are also 96 person-days with 0 minutes of wear time but they're all removed by filtering out the above
+      length(sd_all[sd_all$wear==0,]$interact_id) # 96 person-days with 0 wear minutes
+    
+  # can replicate the original TOP (5559 person-days) by filtering out those where MVPA > wear (using original activity_levels variable)
+    length(sd_all[sd_all$mean_mvpa_sdOld < sd_all$wear,]$interact_id) # 5559
+      # difference of 6: 4 with MVPA > wear using old but not new logic, 2 with mvpa == wear but 0 light+sed and thus shouldn't be deleted
+  
+  # apply logic using the *new* activity_levels variable (activity_levels_shelby) yields 5565 person-days (described above)
+    sd_all<-sd_all[sd_all$mean_mvpa_sd < sd_all$wear | 
+              # adding the following logic to keep the 2 person-days where mvpa == wear with 0 sedentary and 0 light active minutes
+                (sd_all$mean_mvpa_sd == sd_all$wear & sd_all$mean_light_sd == 0 & sd_all$mean_sed_sd == 0),]
+    
+# 2. person-days where wearing == 1
+  # apply logic using the *new* activity_levels variable (activity_levels_shelby) to the wearing file (filtered on wearing but not in_city)
+    sd_wearing<-sd_wearing[sd_wearing$mean_mvpa_sd < sd_wearing$wear | 
+            # adding the following logic to keep the 2 person-days where mvpa == wear with 0 sedentary and 0 light active minutes
+              (sd_wearing$mean_mvpa_sd == sd_wearing$wear & sd_wearing$mean_light_sd == 0 & sd_wearing$mean_sed_sd == 0),]
+  
+    # fewer people are filtered out (vs. sd_all) because sd_all doesn't filter out wearing == 0 OR in_city == 0
+    # mvpa is thus higher in sd_all vs. sd_all test, because the former includes any minutes of MVPA where wearing == 0
+    # therefore more times where mvpa > wear
+  
+# 3. person-days where wearing == 1 & in_city == 1
+  # are there any additional days in the sd_wearingCity data frame that need to be removed? 
+  # No, there are 8 person-days where mvpa == wear but there were 0 light and sedentary minutes
+      length(sd_wearingCity[sd_wearingCity$mean_mvpa_sd == sd_wearingCity$wear,]$interact_id) # 8 where wear == mvpa 
+      length(sd_wearingCity[sd_wearingCity$mean_mvpa_sd == sd_wearingCity$wear & 
+                          !(sd_wearingCity$mean_light_sd == 0 & sd_wearingCity$mean_sed_sd == 0),]$interact_id)
+      length(sd_wearingCity[sd_wearingCity$mean_mvpa_sd > sd_wearingCity$wear,]$interact_id) # 0 where mvpa > wear
+```
+
+*NEW*: compare mean daily MVPA among (a) all person-days and (b) person-days where in_city == 1 and wearing == 1, using (a) activity_levels from the TOP ("old_logic"), and (b) activity_levels_shelby, calculated using code from the INTERACT baseline paper ("new_logic") 
+```{r}
+# 1. all person-days, not filtered by in_city or wearing
+  sd_wave <- sd_all %>% group_by(wave_id) %>%
+                        summarize(
+                          mvpa_all_old_logic = mean(mean_mvpa_sdOld, na.rm = TRUE), # note these (approximately) match paper 1
+                          mvpa_all_new_logic = mean(mean_mvpa_sd, na.rm = TRUE))
+  sd_wave<-as.data.frame(sd_wave)
+
+# 2. filtered to wearing == 1
+  wearing_wave <- sd_wearing %>% group_by(wave_id) %>%
+                                 summarize(mvpa_new_logic_wearing1 = mean(mean_mvpa_sd, na.rm = TRUE))
+  wearing_wave<-as.data.frame(wearing_wave)
+  
+# 3. filtered to in_city == 1 and wearing == 1
+  sd_wearingCity_wave <- sd_wearingCity %>% group_by(wave_id) %>%
+                      summarize(mvpa_new_logic_wearing_inCity1 = mean(mean_mvpa_sd, na.rm = TRUE))
+                               # note this matches baseline INTERACT paper
+  sd_wearingCity_wave<-as.data.frame(sd_wearingCity_wave)
+  
+# merge together to compare
+  merge(sd_wave,merge(wearing_wave,sd_wearingCity_wave,by=c("wave_id")),by="wave_id")
+  rm(sd_wave,sd_wearingCity_wave,wearing_wave)
+```
+
+*NEW*: compare mean mvpa by city and wave among (a) all person-days and (b) person-days where in_city == 1 and wearing == 1, using (a) activity_levels from the TOP ("old_logic"), and (b) activity_levels_shelby, calculated using code from the INTERACT baseline paper ("new_logic") 
+```{r}
+# 1. all person-days, not filtered by in_city or wearing
+  sd_table <- sd_all %>% group_by(city_id,wave_id) %>%
+                         summarize(mvpa_all_old_logic = mean(mean_mvpa_sdOld, na.rm = TRUE), # do these match paper 1?
+                                   mvpa_all_new_logic = mean(mean_mvpa_sd, na.rm = TRUE))
+  sd_table<-as.data.frame(sd_table)
+  
+# 2. person-days where wearing == 1
+  wearing_table <- sd_wearing %>% group_by(city_id,wave_id) %>%
+                                  summarize(mvpa_new_logic_wearing1 = mean(mean_mvpa_sd, na.rm = TRUE))
+  wearing_table<-as.data.frame(wearing_table)
+
+# 3. person-days where wearing == 1 & in_city == 1
+  sd_wearingCity_table <- sd_wearingCity %>% group_by(city_id,wave_id) %>%
+                                             summarize(mvpa_new_logic_wearing_inCity1 = mean(mean_mvpa_sd, na.rm = TRUE))
+                                                  # note these match the baseline INTERACT paper
+  sd_wearingCity_table<-as.data.frame(sd_wearingCity_table)
+  
+  merge(sd_table,merge(wearing_table,sd_wearingCity_table,by=c("wave_id","city_id")),by=c("wave_id","city_id"))
+  rm(sd_table,sd_wearingCity_table,wearing_table)
+```
+
+Generate a flag indicating if a participant contibuted data in both waves
+```{r}
+# 1. all person days (excluding days as outlined above)
+  sd_all<-sd_all %>% group_by(interact_id) %>% mutate(n=length(unique(wave_id))) 
+  sd_all$both<-ifelse(sd_all$n==1,"no","yes")
+    length(unique(sd_all[sd_all$n==2,]$interact_id))
+    
+# 2. person days where wearing == 1
+  sd_wearing<-sd_wearing %>% group_by(interact_id) %>% mutate(n=length(unique(wave_id))) 
+  sd_wearing$both<-ifelse(sd_wearing$n==1,"no","yes")
+    length(unique(sd_wearing[sd_wearing$n==2,]$interact_id))
+    
+# 3. person days where wearing == 1 & in_city == 1
+  sd_wearingCity<-sd_wearingCity %>% group_by(interact_id) %>% mutate(n=length(unique(wave_id))) 
+  sd_wearingCity$both<-ifelse(sd_wearingCity$n==1,"no","yes")
+    length(unique(sd_wearingCity[sd_wearingCity$n==2,]$interact_id))
+```
+
+## 4. Add health data
+
+### Clean data from health survey
+
+Income:  
+```{r}
+  health$income<-factor(ifelse(health$income %in% c("1","2","3","4","5","6","7"),"<$50,000",
+                        ifelse(health$income==8,"$50,000 to $99,999",
+                        ifelse(health$income %in% c(9,10,11),"$100,000 or more",
+                        ifelse(health$income==77,"don't know/prefer not to answer",NA)))),
+                  levels=c("<$50,000","$50,000 to $99,999","$100,000 or more",
+                           "don't know/prefer not to answer"))
+  table(health$income)
+```
+
+Gender:  
+```{r}
+  health$gender<-ifelse(health$gender == 1,"man",
+                 ifelse(health$gender == 2,"woman","other"))
+  table(health$gender)
+```
+
+Children: 
+```{r}
+  health$children<-as.factor(ifelse(health$children==1,"yes","no"))
+  summary(as.factor(health$children))
+```
+
+Marital status
+```{r}
+  health$marital_status<-as.factor(ifelse(health$marital_status==1,"single",
+                                   ifelse(health$marital_status==2,"married",
+                                   ifelse(health$marital_status==3,"separated",
+                                   ifelse(health$marital_status==4,"widowed",NA)))))
+  summary(as.factor(health$marital_status))
+```
+
+Employment status
+```{r}
+  health$employment<-as.factor(ifelse(health$employment==1,"retired and not working",
+                               ifelse(health$employment %in% c(2,3),"employed",
+                               ifelse(health$employment %in% c(4,5),"unemployed",
+                               ifelse(health$employment==6,"other",NA)))))
+  summary(as.factor(health$employment))
+```
+
+Education: 
+```{r}
+  health$education<-as.factor(ifelse(health$education==1,"elementary school",
+                              ifelse(health$education==2,"secondary school",
+                              ifelse(health$education==3,"trade school or college",
+                              ifelse(health$education %in% c(4,5),"university or graduate degree",
+                              ifelse(health$education==77,"don't know/prefer not to answer",NA))))))
+  summary(as.factor(health$education))
+```
+
+Dwelling type: 
+```{r}
+ health$dwelling_type<-as.factor(ifelse(health$dwelling_type==1,"single-detached",
+                                 ifelse(health$dwelling_type==2,"semi-detached",
+                                 ifelse(health$dwelling_type==3,"row",
+                                 ifelse(health$dwelling_type==4,"apartment duplex",
+                                 ifelse(health$dwelling_type==5,"apartment <5 stories",
+                                 ifelse(health$dwelling_type==6,"apartment 5+ stories",
+                                 ifelse(health$dwelling_type==7,"mobile home",
+                                 ifelse(health$dwelling_type==8,"seniors home",
+                                 ifelse(health$dwelling_type==9,"other",
+                                 ifelse(health$dwelling_type==77,"don't know/prefer not to answer",NA)))))))))))
+```
+
+### Merge health and SD data
+
+```{r}
+# 1. all person-days
+  sd_all<-merge(sd_all,health,by=c("interact_id","wave_id"),all.x=TRUE) # 5565
+# 2. person-days where wearing == 1
+  sd_wearing<-merge(sd_wearing,health,by=c("interact_id","wave_id"),all.x=TRUE) # 5575
+# 3. person-days where wearing == 1 and in_city == 1
+  sd_wearingCity<-merge(sd_wearingCity,health,by=c("interact_id","wave_id"),all.x=TRUE) # 5395
+  rm(health)
+```
+
+Clean wave id (makes it easier for figures)
+```{r}
+# 1. all person-days
+  sd_all$wave_id<-ifelse(sd_all$wave_id==1,"wave 1","wave 2")
+# 2. person-days where wearing == 1
+  sd_wearing$wave_id<-ifelse(sd_wearing$wave_id==1,"wave 1","wave 2")
+# 3. person-days where wearing == 1 & in_city == 1
+  sd_wearingCity$wave_id<-ifelse(sd_wearingCity$wave_id==1,"wave 1","wave 2")
+```
+
+## 5. Add stringnecy index
+
+Read in data
+```{r}
+  si<-read.csv("./Data/IRPP stringency index/2021 09 22 INDEX Centre of Excellence COVID Policy Data_New Codebook.csv")
+  si$date<-as.Date(si$date)
+  si$province<-si$Province.Territory
+```
+
+Add province to sd data 
+```{r}
+# 1. all person days
+  sd_all$province<-ifelse(sd_all$city_id=="vancouver","British Columbia",
+                   ifelse(sd_all$city_id=="saskatoon","Saskatchewan",
+                   ifelse(sd_all$city_id=="montreal","Quebec",NA)))
+# 2. person-days where wearing == 1
+  sd_wearing$province<-ifelse(sd_wearing$city_id=="vancouver","British Columbia",
+                       ifelse(sd_wearing$city_id=="saskatoon","Saskatchewan",
+                       ifelse(sd_wearing$city_id=="montreal","Quebec",NA)))
+# 3. person-days where wearing == 1 & in_city == 1 
+  sd_wearingCity$province<-ifelse(sd_wearingCity$city_id=="vancouver","British Columbia",
+                           ifelse(sd_wearingCity$city_id=="saskatoon","Saskatchewan",
+                           ifelse(sd_wearingCity$city_id=="montreal","Quebec",NA)))
+```
+    
+Merge with sd data
+```{r}
+# 1. all person days
+  sd_all<-merge(sd_all,si[si$date %in% sd_all$date,colnames(si) %in%
+                          c("date","province","stringencyIndex")],by=c("date","province"),all.x=TRUE)
+# 2. person-days where wearing == 1
+  sd_wearing<-merge(sd_wearing,si[si$date %in% sd_wearing$date,colnames(si) %in%
+                          c("date","province","stringencyIndex")],by=c("date","province"),all.x=TRUE)
+# 3. person-days where wearing == 1 & in_city == 1
+  sd_wearingCity<-merge(sd_wearingCity,si[si$date %in% sd_wearingCity$date,colnames(si) %in%
+                          c("date","province","stringencyIndex")],by=c("date","province"),all.x=TRUE)
+  rm(si)
+```
+    
+## 6. Add weather data
+
+Read in weather data from 2016 to December 31, 2020
+```{r}
+  weather<-read.csv("Data/weather data/2016_2020_weather_vic_van_sask_mtl.csv")
+```
+
+Read in weather data from Jan and Feb 2021 (all cities) and 2020 for BC (to fill in the gaps where these data are missing above)
+```{r}
+# 2021
+  weatherBC2021<-read.csv("Data/weather data/en_climate_daily_BC_1108395_2021_P1D.csv")
+    weatherBC2021$city_id<-"Vancouver"
+    colnames(weatherBC2021)<-colnames(weather)
+  weatherQC2021<-read.csv("Data/weather data/en_climate_daily_QC_702S006_2021_P1D.csv") 
+    weatherQC2021$city_id<-"Montreal"
+    colnames(weatherQC2021)<-colnames(weather)
+  weatherSK2021<-read.csv("Data/weather data/en_climate_daily_SK_4057165_2021_P1D.csv") 
+    weatherSK2021$city_id<-"Saskatoon"
+    colnames(weatherSK2021)<-colnames(weather)
+    
+# 2020
+  weatherBC2020<-read.csv("Data/weather data/en_climate_daily_BC_1108395_2020_P1D.csv")
+    weatherBC2020$city_id<-"Vancouver"
+    colnames(weatherBC2020)<-colnames(weather)
+  # remove dates with missing temperature data 
+    weatherBC2020<-weatherBC2020[!is.na(weatherBC2020$total_precip_mm) & !is.na(weatherBC2020$mean_temp_c),]
+  # filter to the dates in 2020 with missing temperature or precipitation data 
+    missing<-weather[(is.na(weather$total_precip_mm) | is.na(weather$mean_temp_c)) & 
+                      weather$city_id=="Vancouver" & weather$date > "2020-09-01",]
+    weatherBC2020<-weatherBC2020[weatherBC2020$date_time %in% missing$date_time,]
+```
+
+Combine old weather data with updated weather data
+```{r}
+  weather<-rbind(weather,weatherBC2021,weatherQC2021,weatherSK2021)
+  weather<-weather[!is.na(weather$total_precip_mm) & !is.na(weather$mean_temp_c),]
+  weather<-rbind(weather,weatherBC2020)
+  weather<-weather[weather$date_time<"2021-03-01",]
+  rm(weatherBC2020,weatherBC2021,weatherQC2021,weatherSK2021,missing)
+```
+
+Reformat column names to match the sd_all dataframe (format city_id to be all lowercase, rename datetime to date)
+```{r}
+  weather$city_id<-tolower(weather$city_id)
+  weather<-weather %>% rename(date=date_time,
+                              mean_temp=mean_temp_c,
+                              max_temp=max_temp_c,
+                              min_temp=min_temp_c,
+                              total_precip=total_precip_mm)
+```
+Explore variables available
+```{r}
+  weather<-weather %>% dplyr::select(date,mean_temp,total_precip,city_id)
+```
+
+Merge with sd data
+```{r}
+# 1. all person-days
+  sd_all<-merge(sd_all,weather,by=c("date","city_id"),all.x=TRUE)
+
+# 2. person days where wearing == 1
+  sd_wearing<-merge(sd_wearing,weather,by=c("date","city_id"),all.x=TRUE)
+  
+# 3. person days where wearing == 1 & in_city == 1
+  sd_wearingCity<-merge(sd_wearingCity,weather,by=c("date","city_id"),all.x=TRUE)
+  rm(weather)
+```
+  
+## 7. Export data
+
+```{r}
+  write.csv(sd_all,"sensdoc-all-2023.csv",row.names = FALSE)
+  write.csv(sd_wearingCity,"sensdoc-wearingCity-2023.csv",row.names = FALSE)
+  write.csv(sd_wearing,"sensdoc-wearing-2023.csv",row.names = FALSE)
+```

@@ -1,0 +1,1397 @@
+---
+title: "paper1-INTERACT-analysis"
+author: "Shelby Sturrock"
+date: "September 10, 2023"
+output: 
+  html_document:
+    keep_md: true
+---
+
+```{r setup, include=FALSE,results=FALSE,echo=FALSE}
+  knitr::opts_chunk$set(echo = TRUE)
+  # install.packages("table1")
+  # install.packages("effects")
+  # install.packages("stargazer")
+  library(dplyr)
+  library(lubridate)
+  library(ggplot2)
+  library(tableone)
+  library(table1)
+  library(tidyr)
+  library(lme4)
+  library(gridExtra)
+  library(MASS)
+  library(sjPlot)
+  library(effects)
+  library(stargazer)
+  library(car)
+  knitr::opts_knit$set(root.dir = '/Users/shelbysturrock/Library/Mobile Documents/com~apple~CloudDocs/Documents/Documents - Shelby’s MacBook Pro/School/UofT/Dissertation/PAPER 1 - INTERACT')
+  knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+
+# Paper 1: Analysis
+
+## 1. Prepare data
+
+### Sensdoc data
+
+Read in SD TOP: 
+```{r,results="hide"}
+  sd_pa<-read.csv("sensdoc-wearing-2023.csv") # 5575
+```
+
+### Set levels for categorical variables (and re-categorize per MW comments)
+
+Format date as date
+```{r}
+  sd_pa$date<-as.Date(sd_pa$date)
+```
+
+Age category (other paper used 18-24, 25-44, 45 to 64, and 65+)
+```{r,echo=FALSE}
+  sd_pa$age_cat<-factor(sd_pa$age_cat,
+                  levels=c("18-29","30-49","50-69","70+"))
+  table(sd_pa$age_cat)
+```
+
+Income. Combine <50,000 into one category and re-order the levels 
+```{r,echo=FALSE}
+  sd_pa$income<-factor(sd_pa$income,
+                levels=c("<$50,000","$50,000 to $99,999",
+                          "$100,000 or more","don't know/prefer not to answer"))
+  summary(as.factor(sd_pa$income))
+```
+
+Gender:  
+```{r,echo=FALSE}
+  sd_pa$gender<-factor(sd_pa$gender,
+                       levels=c("man","woman","other"))
+  summary(as.factor(sd_pa$gender))
+```
+
+Children: 
+```{r,echo=FALSE}
+  sd_pa$children<-factor(sd_pa$children,levels=c("yes","no"))
+  summary(as.factor(sd_pa$children))
+```
+
+Employment status
+```{r,echo=FALSE}
+  sd_pa$employment<-factor(sd_pa$employment,
+                           levels=c("employed","retired and not working","unemployed","other"))
+  summary(as.factor(sd_pa$employment))
+```
+
+Education: 
+```{r,echo=FALSE}
+  sd_pa$education<-factor(sd_pa$education,
+                          levels=c("university or graduate degree","secondary school",
+                                   "trade school or college","don't know/prefer not to answer"))
+  summary(as.factor(sd_pa$education))
+```
+
+Create categorical stringency index, for assessing balance across levels of stringency 
+```{r}
+  summary(sd_pa[sd_pa$wave_id=="wave 2",]$stringencyIndex)
+    # min = 25.90, 1st qu. = 39.40, median = 47.00, 3rd qu. = 50.70, max = 66.80
+
+# create a categorical version: <40, 40-50, >50
+  sd_pa$si_cat<-as.factor(ifelse(sd_pa$stringencyIndex <= 41, "0-41",
+                          ifelse(sd_pa$stringencyIndex > 41 & sd_pa$stringencyIndex <=47, "42-47",
+                          ifelse(sd_pa$stringencyIndex > 47, "48-100",NA))))
+  summary(sd_pa[sd_pa$wave_id=="wave 2",]$si_cat)
+```
+
+### Data cleaning: Creating sub-samples
+
+*sd_ppl: Person-level dataset*: used in version 1 of Table 1 (with person-level characteristics)
+```{r}
+  sd_ppl<-sd_pa %>% ungroup() %>% 
+                    dplyr::select(interact_id,income,gender,age,age_cat,children,
+                           education,employment,wave_id,city_id,both)
+  sd_ppl<-distinct(sd_ppl)
+  table(sd_ppl$wave_id,sd_ppl$city_id) # one participant from Saskatoon in wave 1 has gone missing?
+```
+
+*sd_valid: Participant-days of data with >= 600 minutes of wear time*: this is used in the main analyses and table 1
+```{r}
+  sd_valid<-sd_pa[sd_pa$wear>=600,]
+  length(sd_pa[sd_pa$wear<600,]$interact_id)
+```
+
+*sd_valid_ppl: People with at least one valid participant-day (>= 600 minutes of wear time)*
+```{r}
+  sd_ppl_valid<-sd_valid %>% ungroup() %>% 
+                    dplyr::select(interact_id,income,gender,age,age_cat,children,
+                           education,employment,wave_id,city_id,both)
+  sd_ppl_valid<-distinct(sd_ppl_valid)
+  table(sd_ppl_valid$wave_id) # one participant from Saskatoon in wave 1 has gone missing?
+```
+
+
+*sd_valid_both: valid person-days from participants that contributed at least one day of VALID data in both waves* this is used for sensitivity analysis I: filtered to valid person-days (sd_valid) and then filtered to participants with data in both waves (sd_valid_both) 
+```{r}
+  valid_both_waves<-sd_valid %>% dplyr::select(interact_id,wave_id) %>% distinct() %>% 
+                                        group_by(interact_id) %>%
+                                        mutate(count=length(unique(wave_id))) %>% filter(count>1)
+  sd_valid_both<-sd_valid[sd_valid$interact_id %in% valid_both_waves[valid_both_waves$count==2,]$interact_id ,]
+  length(unique(sd_valid_both$interact_id))
+```
+
+### Stringency index
+
+Read in data
+```{r}
+  si<-read.csv("./Data/IRPP stringency index/2021 09 22 INDEX Centre of Excellence COVID Policy Data_New Codebook.csv")
+  si$date<-as.Date(si$date)
+  si$province<-si$Province.Territory
+```
+
+Rescale stringencyIndex by dividing values by 10
+```{r}
+  si$stringencyIndex<-si$stringencyIndex/10
+  sd_pa$stringencyIndex<-sd_pa$stringencyIndex/10
+```
+
+Rescale wear time
+```{r}
+  sd_pa$wearRS<-sd_pa$wear/100
+  sd_valid$wearRS<-sd_valid$wear/100
+```
+
+Plot of stringency index over time (in black and white)
+```{r,echo=FALSE}
+  si_plot<-ggplot(si[si$province %in% c("British Columbia","Saskatchewan","Quebec") & 
+                      si$date <= "2021-02-28",],aes(x=date,y=stringencyIndex*10,color=province)) +
+           geom_rect(aes(xmin=ymd('2020-09-10'),
+                  xmax = ymd('2021-02-28'),
+                  ymin = -Inf,
+                  ymax = Inf), fill = 'grey95', color='grey95',alpha = 0.75) +
+           geom_line(size=0.6) + 
+           theme_classic() + 
+           scale_colour_grey(labels=c("British Columbia\n(Vancouver)\n",
+                                      "Quebec\n(Montreal)\n",
+                                      "Saskatchewan\n(Saskatoon)\n")) +
+           labs(#title="Stringency of COVID-19 restrictions over time",
+                 x="Date",y="Stringency index") +
+           guides(color=guide_legend(title="Province (City)\n")) +
+           theme(legend.title=element_text(face="bold",size=9),
+                 legend.text = element_text(size=8),
+                 axis.title = element_text(face="bold",size=9),
+                 axis.text = element_text(size=8),
+                 plot.title = element_text(face="bold",size=10,hjust=0.5)) +
+           annotate(geom="text", x=as.Date('2020-12-04'), y=10, label="Wave 2 data collection period",
+                    color="grey30",size=2.75)
+
+  si_plot
+  
+  ggsave(si_plot,file="figures//figure4.pdf",width=5.5,height=3.25)
+  ggsave(si_plot,file="submission to IJE//figure4.pdf",width=175,height=95,unit="mm") # for IJBNPA
+```
+
+
+## 2. Assess for balance across exposures
+
+### Create Table 1:
+
+*Columns 1 and 2: participants who contributed at least one valid day of data, by wave (sd_ppl_valid)*
+```{r, echo=FALSE}
+  balance_ppl_by_wave_full<-CreateTableOne(vars=c(
+                                        "city_id","gender","age_cat","income",
+                                        "children","education","employment"),
+                                 strata="wave_id",
+                                 data=sd_ppl_valid,test=FALSE,
+                                 includeNA=TRUE)
+  kableone(balance_ppl_by_wave_full)
+  #print(kableone(balance_ppl_by_wave_full,quote=TRUE,noSpaces=TRUE))
+```
+
+*Columns 3 and 4: valid person-days, by wave (sd_valid)*
+Wear time and city are very different between waves. Some differences in age (older in wave 2), some differences in income (fewer young people, more older people in wave 2) (vs. sd_pa: all person-days, by wave)
+filtering out invalid days introduces an imbalance in education levels
+different: wear, city, age, income, employment status, education 
+```{r, echo=FALSE}
+  balance_days_by_wave_valid<-CreateTableOne(vars=c(
+                                        "wear","mean_mvpa_sd","mean_temp","total_precip",
+                                        "city_id","gender","age_cat","income",
+                                        "children","education","employment"),
+                                 strata="wave_id",
+                                 data=sd_valid,test=FALSE,
+                                 includeNA=TRUE)
+   kableone(balance_days_by_wave_valid)
+   #print(kableone(balance_days_by_wave_valid,quote=TRUE,noSpaces=TRUE))
+```
+
+*Columns 5 and 6: valid participant-days from wave 2, stratified by stringency index (sd_valid)*: 
+CLEAR imbalances of gender, age, kids, education and employment status (not income)
+```{r, echo=FALSE}
+  balance_by_SI_full<-CreateTableOne(vars=c(#"mean_wave_mvpa","mean_wave_wear",
+                                        "wear","mean_mvpa_sd","mean_temp","total_precip",
+                                        "city_id","gender","age_cat","income",
+                                        "children","education","employment"),
+                                 strata="si_cat",
+                                 data=sd_valid,test=FALSE,
+                                 includeNA=TRUE)
+  kableone(balance_by_SI_full)
+  #print(kableone(balance_by_SI_full,quote=TRUE,noSpaces=TRUE))
+```
+
+### Create Supplementary Table 1: 
+
+*Columns 1 and 2: Participants with at least one valid day of data in BOTH waves (objective 1, sensitivity analysis I; sd_valid_both*: 
+imbalances are slightly different here, too. In theory, this group should be the same in both waves, but this is a person-day dataset and there are people who contributed different number of (valid) days in each wave
+different: wear, gender, income, 
+same: city, education, employment, kids 
+```{r, echo=FALSE}
+  balance_days_by_wave_valid_both<-CreateTableOne(vars=c(
+                                        "wear","mean_mvpa_sd","mean_temp","total_precip",
+                                        "city_id","gender","age_cat","income",
+                                        "children","education","employment"),
+                                 strata="wave_id",
+                                 data=sd_valid_both,test=FALSE)
+  kableone(balance_days_by_wave_valid_both)
+  #print(kableone(balance_days_by_wave_valid_both,quote=TRUE,noSpaces=TRUE))
+```
+
+*Columns 3 and 4: Valid person-days collected between October 3 and February 20 (objective 1, sensitivity analysis II; sd_valid)*
+```{r, echo=FALSE}
+  balance_days_by_wave_septFeb<-CreateTableOne(vars=c(
+                                        "wear","mean_mvpa_sd","mean_temp","total_precip",
+                                        "city_id","gender","age_cat","income",
+                                        "children","education","employment"),
+                                 strata="wave_id",
+                                 data=sd_valid[
+                                   (sd_valid$wave_id == "wave 1" & sd_valid$date >= "2018-10-03") |
+                                   (sd_valid$wave_id == "wave 2" & sd_valid$date <= "2021-02-20"),],test=FALSE)
+  kableone(balance_days_by_wave_septFeb)
+  #print(kableone(balance_days_by_wave_septFeb,quote=TRUE,noSpaces=TRUE))
+```
+
+Rescale temperature and precipitation
+```{r}
+  sd_pa$total_precip<-sd_pa$total_precip/10
+  sd_pa$mean_temp<-sd_pa$mean_temp/10
+```
+
+
+## 3. OBJECTIVE 1: Impact of the pandemic on daily MVPA
+
+### Descriptive figures
+
+**Figure 1**: Distribution of daily minutes of wear time and moderate-to-vigorous physical activity among valid person-days, by wave
+```{r,echo=FALSE}
+wave.labs<-c("Wave 1","Wave 2")
+names(wave.labs)<-c("wave 1","wave 2")
+
+  wear_plot<-ggplot(sd_valid,aes(x=wear)) + 
+    geom_histogram(bins=50,aes(fill=wave_id,color=wave_id)) +
+    theme_classic() +
+    labs(x="Minutes",
+         y="Frequency",
+         title="Wear time" #,
+         #subtitle="Wave 1 (dark blue) vs. Wave 2 (light blue)"
+         ) +
+    geom_vline(xintercept=600,color="black",linetype="dashed") +
+    facet_grid(vars(wave_id),
+               labeller = labeller(wave_id=wave.labs)) +
+    # scale_fill_manual(values=c("wave 1"="#0a9ffe", # green = "#81DA66"
+    #                             "wave 2"="#fe7701"), # darker orange #fe7701 #ff8c09
+    #                    labels=c("Wave 1","Wave 2")) + 
+    scale_fill_grey(labels=c("Wave 1","Wave 2")) +
+    scale_color_grey(labels=c("Wave 1","Wave 2"))+
+    theme(axis.title.x = element_text(face="bold",
+                                       size=10),
+          axis.text.x = element_text(angle=90,vjust = 0.5, hjust=1,size=8),
+        # axis.title.y = element_text(#face="bold",
+        #                              size=10),
+          axis.title.y = element_blank(),
+          axis.text.y = element_text(size=8),
+          plot.title = element_text(face=2,
+                                    hjust=0.5,
+                                    size=10),
+          legend.position="none",
+          strip.text.y = element_text(face=2)) 
+
+  mvpa_plot<-ggplot(sd_valid,aes(x=mean_mvpa_sd)) + 
+    geom_histogram(bins=50,aes(fill=wave_id,color=wave_id)) +
+    theme_classic() +
+    labs(x="Minutes",
+         y="Frequency",
+         title="Moderate-to-vigorous physical activity" #,
+         #subtitle="Wave 1 (dark blue) vs. Wave 2 (light blue)"
+         ) +
+    facet_grid(vars(wave_id),
+               labeller = labeller(wave_id=wave.labs)) +
+    # scale_fill_manual(values=c("wave 1"="#0a9ffe", # green = "#81DA66"
+    #                             "wave 2"="#fe7701"), # darker orange #fe7701 #ff8c09
+    #                    labels=c("Wave 1","Wave 2")) + 
+    scale_fill_grey(labels=c("Wave 1","Wave 2")) +
+    scale_color_grey(labels=c("Wave 1","Wave 2"))+
+    theme(axis.title.x = element_text(face="bold",
+                                       size=10),
+          axis.text.x = element_text(angle=90,vjust = 0.5, hjust=1,size=8),
+        # axis.title.y = element_text(#face="bold",
+        #                              size=10),
+          axis.title.y = element_blank(),
+          axis.text.y = element_text(size=8),
+          plot.title = element_text(face=2,
+                                    hjust=0.5,
+                                    size=10),
+          legend.position="none",
+          strip.text.y = element_text(face=2)) 
+  
+  # titleMain=ggpubr::text_grob("Distribution of daily minutes of wear time and moderate-to-vigorous physical activity:\nWave 1 (2018-2019) vs. Wave 2 (2020-2021)\n",
+  #                             size =10,face="bold")  
+  titleY=ggpubr::text_grob("Frequency",
+                            size =10,rot=90,face="bold")  
+  
+  figure1<-grid.arrange(wear_plot,mvpa_plot,ncol=2,
+               #top=titleMain, # removing title for IJBNPA (titles should be in the text, not in the figure)
+               left=titleY)
+  
+  ggsave(figure1,file="figures//figure1.pdf",width=6,height=4)
+  ggsave(figure1,file="submission to IJE//figure1.pdf",width=175,height=100,unit="mm")
+```
+
+**Figure 2:** Trend in daily minutes of moderate-to-vigorous physical activity for each wave
+```{r,echo=FALSE,warning=FALSE}
+  sd_valid$doy3<-sd_valid$date
+  sd_valid$doy3<-gsub("2018|2020","2000",sd_valid$doy3)
+  sd_valid$doy3<-gsub("2019|2021","2001",sd_valid$doy3)
+  sd_valid$doy3<-as.Date(sd_valid$doy3)
+  
+  figure2<-ggplot(sd_valid[sd_valid$wave_id=="wave 1",],aes(x=doy3,y=mean_mvpa_sd,color=wave_id)) +
+                          geom_point(alpha=0.15,size=1)+
+                          geom_point(data=sd_valid[sd_valid$wave_id=="wave 2",],aes(x=doy3,y=mean_mvpa_sd),
+                                     alpha=0.15,size=1) +
+                          scale_colour_manual(values=c("wave 1"="grey65",
+                                                       "wave 2"="black"),
+                                              labels=c("Wave 1 (2018-2019)","Wave 2 (2020-2021)")) +
+                          geom_smooth(method=lm)+
+                          geom_smooth(data=sd_valid[sd_valid$wave_id=="wave 2",],aes(x=doy3,y=mean_mvpa_sd),method=lm) +
+                          theme_classic()+
+                          labs(#title = "Daily minutes of moderate-to-vigorous physical activity by day of the year: ", # removing title for IJBNPA
+                               #subtitle = "Wave 1 (2018-2019) vs. Wave 2 (2020-2021)",
+                               y = "Daily minutes of moderate-to-vigorous physical activity",
+                               x = "Date")+
+                          guides(color=guide_legend("")) +
+                          theme(axis.title = element_text(face="bold",size=10),
+                                axis.text.x = element_text(angle=90,vjust = 0.5, hjust=1,size=8),
+                                axis.text.y = element_text(size=8),
+                                plot.title = element_text(face="bold",hjust=0.5,size=10),
+                                plot.subtitle = element_text(hjust=0.5,size=10),
+                                legend.position="bottom",
+                                legend.key.size = unit(1,"line"),
+                                legend.spacing.x = unit(0.25, 'cm'),
+                                legend.margin=margin(-3, 0, 0, 0),
+                                legend.text = element_text(size=8,margin = margin(r = 0.4, unit = 'cm'))) 
+  figure2
+  ggsave(figure2,file="figure2.pdf",width=6,height=4)
+  ggsave(figure2,file="submission to IJE//figure2.pdf",width=175,height=120,unit="mm")
+```
+
+
+
+### I. Main effect models (results presented in Table 2)
+
+#### Unadjusted model (Table 2, Row 1)
+
+*Model*
+```{r}
+  wave_abs_valid_unadj<-glmer.nb(mean_mvpa_sd~ wave_id + (1|interact_id),
+                                 data=sd_valid) 
+  #summary(wave_abs_valid_unadj)
+```
+
+*Results*
+```{r,echo=FALSE}
+# effect estimate:
+  coef4<-as.data.frame(summary(wave_abs_valid_unadj)$coefficients)
+  print(paste("effect estimate: ",exp(coef4[2,]$Estimate),sep=""))
+
+# confidence interval: 
+  ci4<-exp(confint(wave_abs_valid_unadj, c("wave_idwave 2"), level = 0.95))
+  print("confidence interval: ")
+  print(ci4)
+  
+# number of observations for wave 1 and wave 2?
+  # colSums(model.matrix(wave_abs_valid_unadj)) # total = 3260, wave 1 = 3010, wave 2 = 250
+```
+
+#### Adjusted for unbalanced factors (Table 2, Row 2)
+
+*Assess for balance betwween waves to determine that to adjust for in the adjusted model*
+```{r,echo=FALSE}
+  kableone(balance_days_by_wave_valid)
+```
+
+*Model: Adjusting for city, age, employment status, income, temp, precipitation and wear time*
+```{r,warning=FALSE}
+  wave_covar_valid_fully<-glmer.nb(mean_mvpa_sd~ wave_id + city_id + wearRS +
+                                                 age_cat + employment + income +
+                                                 mean_temp + total_precip + 
+                                                 (1|interact_id),
+                          data=sd_valid[sd_valid$age_cat!="missing",])
+```
+
+*Results*
+```{r,echo=FALSE}
+# effect estimate:
+  coef7<-as.data.frame(summary(wave_covar_valid_fully)$coefficients)
+  print(paste("effect estimate: ",exp(coef7[2,]$Estimate),sep=""))
+
+# confidence interval: 
+  ci7<-exp(confint(wave_covar_valid_fully, c("wave_idwave 2"), level = 0.95))
+  print("confidence interval: ")
+  print(ci7)
+  
+# number of observations for wave 1 and wave 2?
+  # colSums(model.matrix(wave_covar_valid_fully)) # total = 3142 (3260-118), wave 1 = 2893, wave 2 = 249
+```
+
+
+### II. Sensitivity analyses (Supplementary Table 2)
+
+#### A. Sensitivity analysis 1 (Supplementary Table 2, Row 2) 
+
+Participants-days from participants that contributed data in both waves with 600+ minutes of wear time, adjusted for unbalanced factors (gender, age, household income, mean daily temperature, daily precipitation, daily wear time)
+
+**Model**
+```{r,warning=FALSE}
+  both_valid_adj_wear<-glmer.nb(mean_mvpa_sd~ wave_id + 
+                                              gender + age_cat + income +
+                                              mean_temp + total_precip + wear +
+                                       (1|interact_id),
+                          data=sd_valid_both) 
+```
+
+**Results**
+```{r,echo=FALSE}
+# effect estimate: 
+  coefSens1<-as.data.frame(summary(both_valid_adj_wear)$coefficients)[2,]
+  print(paste("effect estimate: ",round(exp(coefSens1$Estimate),digits=2),sep=""))
+  
+# confidence interval: 
+  ciSens1<-exp(confint(both_valid_adj_wear, c("wave_idwave 2"), level = 0.95))
+  print("confidence interval: ")
+  print(round(ciSens1,digits=2))
+  
+# number of observations for wave 1 and wave 2?
+  colSums(model.matrix(both_valid_adj_wear)) # total = 454 (459-5), wave 1 = 307, wave 2 = 147
+```
+
+#### B. Sensitivity analysis 2 (Supplementary Table 2, Row 3)
+
+Filter data from wave 1 and wave 2 to the same date range
+
+**Dates of data collection for wave 1 vs. wave 2**
+```{r,echo=FALSE}
+  paste("dates for wave 1 data collection: ",min(sd_valid[sd_valid$wave_id=="wave 1",]$date)," to ",
+                                             max(sd_valid[sd_valid$wave_id=="wave 1",]$date),sep="")
+  paste("dates for wave 2 data collection: ",min(sd_valid[sd_valid$wave_id=="wave 2",]$date)," to ",
+                                             max(sd_valid[sd_valid$wave_id=="wave 2",]$date),sep="")
+```
+
+**Create new dataframe restricted to valid days between October 3 and February 20 (the range of dates on which person-days with 600+ minutes of wear time begin)**
+```{r}
+  sens_valid<-sd_valid[(sd_valid$wave_id == "wave 1" & sd_valid$date >= "2018-10-03") |
+                       (sd_valid$wave_id == "wave 2" & sd_valid$date <= "2021-02-20"),]
+```
+
+**Double check new data frame: Note the time frame matches for both wave 1 and wave 2**
+```{r,echo=FALSE}
+  paste("dates for wave 1 data collection: ",min(sens_valid[sens_valid$wave_id=="wave 1",]$date)," to ",
+                                             max(sens_valid[sens_valid$wave_id=="wave 1",]$date),sep="")
+  paste("dates for wave 2 data collection: ",min(sens_valid[sens_valid$wave_id=="wave 2",]$date)," to ",
+                                             max(sens_valid[sens_valid$wave_id=="wave 2",]$date),sep="")
+```
+
+**Model**
+```{r,warning=FALSE}
+  wave_covar_valid_fully_sens<-glmer.nb(mean_mvpa_sd~ wave_id +
+                                                      gender + age_cat + employment + income + education +
+                                                      city_id + wear +
+                                       (1|interact_id),
+                          data=sens_valid[sens_valid$age_cat!="missing",])
+  summary(wave_covar_valid_fully_sens)
+```
+
+**Results**
+```{r,echo=FALSE}
+# effect estimate:
+  coefSens2<-as.data.frame(summary(wave_covar_valid_fully_sens)$coefficients)[2,]
+  print(paste("effect estimate: ",round(exp(coefSens2$Estimate),digits=2),sep=""))
+  
+# confidence interval: 
+  ciSens2<-exp(confint(wave_covar_valid_fully_sens, c("wave_idwave 2"), level = 0.95))
+  print("confidence interval: ")
+  print(round(ciSens2,digits=2))
+```
+
+
+### III. Effect modification 
+
+#### Assess for effect modification (Supplementary Table 3)
+
+I'll run stratified models to determine if the effect size or direction of the exposure variable (wave_id) varies across levels of each independent variable. These models will be run on valid person-days (600+ minutes of wear time) from both waves. 
+
+**Overall, for reference (row 1 supplementary table 2)**
+```{r,warning=FALSE,echo=FALSE}
+  overall_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid) 
+# Comparison: 
+  print(paste("overall: ",round(exp(as.data.frame(summary(overall_valid_adj)$coefficients)$Estimate[2]),digits=2)),sep="")
+```
+
+**Gender**
+```{r,echo=FALSE,warning=FALSE}
+# models (men, women):
+  gender1_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$gender=="man",]) 
+  gender2_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$gender=="woman",]) 
+
+# effect estimates:
+  gender1_coef<-round(exp(as.data.frame(summary(gender1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  gender2_coef<-round(exp(as.data.frame(summary(gender2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  gender1_CI<-round(exp(confint(gender1_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  gender2_CI<-round(exp(confint(gender2_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+```
+
+Distribution of person-days by wave and gender
+```{r,echo=FALSE}
+  addmargins(table(as.factor(sd_valid$gender),as.factor(sd_valid$wave_id)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+  print(paste("men: ",gender1_coef[1]," (",gender1_CI[1],", ",gender1_CI[2],")",sep=""))
+  print(paste("women: ",gender2_coef[1]," (",gender2_CI[1],", ",gender2_CI[2],")",sep=""))
+```
+
+
+**Age**
+```{r,echo=FALSE,warning=FALSE}
+# models (18-29, 30-49, 50-69, 70+) 
+  age1_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$age_cat=="18-29",]) 
+  age2_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$age_cat=="30-49",]) 
+  age3_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$age_cat=="50-69",]) 
+  age4_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$age_cat=="70+",]) 
+
+# effect estimates:
+  age1_coef<-round(exp(as.data.frame(summary(age1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  age2_coef<-round(exp(as.data.frame(summary(age2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  age3_coef<-round(exp(as.data.frame(summary(age3_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  age4_coef<-round(exp(as.data.frame(summary(age4_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  age1_CI<-round(exp(confint(age1_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  age2_CI<-round(exp(confint(age2_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  age3_CI<-round(exp(confint(age3_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  age4_CI<-round(exp(confint(age4_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+```
+
+Distribution of person-days by wave and age
+```{r,echo=FALSE}
+  addmargins(table(as.factor(sd_valid$age_cat),as.factor(sd_valid$wave_id)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+  print(paste("18-29: ",age1_coef[1]," (",age1_CI[1],", ",age1_CI[2],")",sep=""))
+  print(paste("30-49: ",age2_coef[1]," (",age2_CI[1],", ",age2_CI[2],")",sep=""))
+  print(paste("50-69: ",age3_coef[1]," (",age3_CI[1],", ",age3_CI[2],")",sep=""))
+  print(paste("70+: ",   age4_coef[1]," (",age4_CI[1],", ",age4_CI[2],")",sep=""))
+```
+
+
+**Income**
+```{r,echo=FALSE,warning=FALSE}
+# models (<50,000, 50,000-99,999, 100,000-149,999, 150,000+)
+  income1_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$income=="<$50,000",]) 
+  income2_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$income=="$50,000 to $99,999",]) 
+  income3_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$income=="$100,000 or more",]) 
+  income4_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$income=="don't know/prefer not to answer",]) 
+
+# effect estimates:
+  income1_coef<-round(exp(as.data.frame(summary(income1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  income2_coef<-round(exp(as.data.frame(summary(income2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  income3_coef<-round(exp(as.data.frame(summary(income3_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  income4_coef<-round(exp(as.data.frame(summary(income4_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  income1_CI<-round(exp(confint(income1_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  income2_CI<-round(exp(confint(income2_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  income3_CI<-round(exp(confint(income3_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  income4_CI<-round(exp(confint(income4_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+```
+
+Distribution of person-days by wave and income
+```{r,echo=FALSE}
+  addmargins(table(as.factor(sd_valid$income),as.factor(sd_valid$wave_id)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+  print(paste("<$50,000: ",income1_coef[1]," (",income1_CI[1],", ",income1_CI[2],")",sep=""))
+  print(paste("$50,000 to $99,999: ",income2_coef[1]," (",income2_CI[1],", ",income2_CI[2],")",sep=""))
+  print(paste("$100,000 or more: ",income3_coef[1]," (",income3_CI[1],", ",income3_CI[2],")",sep=""))
+  print(paste("don't know/prefer not to answer: ",income4_coef[1]," (",income4_CI[1],", ",income4_CI[2],")",sep=""))
+```
+
+
+**Education**
+```{r,echo=FALSE,warning=FALSE}
+# models (university or graduate degree, secondary school, trade school or college)
+  education1_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$education=="university or graduate degree",])
+  education2_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$education=="secondary school",]) 
+  education3_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$education=="trade school or college",]) 
+
+# effect estimates:
+  education1_coef<-round(exp(as.data.frame(summary(education1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  education2_coef<-round(exp(as.data.frame(summary(education2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  education3_coef<-round(exp(as.data.frame(summary(education3_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  education1_CI<-round(exp(confint(education1_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  education2_CI<-round(exp(confint(education2_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  education3_CI<-round(exp(confint(education3_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+```
+
+Distribution of person-days by wave and education
+```{r,echo=FALSE}
+  addmargins(table(as.factor(sd_valid$education),as.factor(sd_valid$wave_id)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+  print(paste("university or graduate degree: ",
+              education1_coef[1]," (",education1_CI[1],", ",education1_CI[2],")",sep=""))
+  print(paste("secondary school: ",
+              education2_coef[1]," (",education2_CI[1],", ",education2_CI[2],")",sep=""))
+  print(paste("trade school or college: ",
+              education3_coef[1]," (",education3_CI[1],", ",education3_CI[2],")",sep=""))
+```
+
+**Employment status**
+```{r,echo=FALSE,warning=FALSE}
+# models (employed, retired and not working, unemployed, other): 
+  employment1_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$employment=="employed",]) 
+  employment2_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$employment=="retired and not working",]) 
+  employment3_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$employment=="unemployed",]) 
+  employment4_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$employment=="other",]) 
+
+# effect estimates:
+  employment1_coef<-round(exp(as.data.frame(summary(employment1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  employment2_coef<-round(exp(as.data.frame(summary(employment2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  employment3_coef<-round(exp(as.data.frame(summary(employment3_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  employment4_coef<-round(exp(as.data.frame(summary(employment4_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  employment1_CI<-round(exp(confint(employment1_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  employment2_CI<-round(exp(confint(employment2_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  employment3_CI<-round(exp(confint(employment3_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  employment4_CI<-round(exp(confint(employment4_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+```
+
+Distribution of person-days by wave and employment
+```{r,echo=FALSE}
+  addmargins(table(as.factor(sd_valid$employment),as.factor(sd_valid$wave_id)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+  print(paste("employed: ",
+              employment1_coef[1]," (",employment1_CI[1],", ",employment1_CI[2],")",sep=""))
+  print(paste("retired and not working: ",
+              employment2_coef[1]," (",employment2_CI[1],", ",employment2_CI[2],")",sep=""))
+  print(paste("unemployed: ",
+              employment3_coef[1]," (",employment3_CI[1],", ",employment3_CI[2],")",sep=""))
+  print(paste("other: ",
+              employment4_coef[1]," (",employment4_CI[1],", ",employment4_CI[2],")",sep=""))
+```
+
+**Has children**
+```{r,echo=FALSE,warning=FALSE}
+# models:
+  children1_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$children=="yes",]) 
+  children2_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$children=="no",]) 
+    
+# effect estimates:
+  children1_coef<-round(exp(as.data.frame(summary(children1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  children2_coef<-round(exp(as.data.frame(summary(children2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  children1_CI<-round(exp(confint(children1_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  children2_CI<-round(exp(confint(children2_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+```
+
+Distribution of person-days by wave and employment
+```{r,echo=FALSE}
+  addmargins(table(as.factor(sd_valid$children),as.factor(sd_valid$wave_id)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+  print(paste("has children at home: ",
+              children1_coef[1]," (",children1_CI[1],", ",children1_CI[2],")",sep=""))
+  print(paste("does not have children at home:",
+              children2_coef[1]," (",children2_CI[1],", ",children2_CI[2],")",sep=""))
+```
+
+**City**
+```{r,echo=FALSE,warning=FALSE}
+# models: 
+  city1_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$city_id=="montreal",])
+  city2_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$city_id=="saskatoon",]) 
+  city3_valid_adj<-glmer.nb(mean_mvpa_sd~ wave_id + wearRS + (1|interact_id),
+                              data=sd_valid[sd_valid$city_id=="vancouver",]) 
+    
+# effect estimates:
+  city1_coef<-round(exp(as.data.frame(summary(city1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  city2_coef<-round(exp(as.data.frame(summary(city2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  city3_coef<-round(exp(as.data.frame(summary(city3_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  city1_CI<-round(exp(confint(city1_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  city2_CI<-round(exp(confint(city2_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")),digits=2)
+  city3_CI<-round(exp(confint(city3_valid_adj, c("wave_idwave 2"), level = 0.95,method="boot")) ,digits=2)
+```
+
+Distribution of person-days by wave and employment
+```{r,echo=FALSE}
+  addmargins(table(as.factor(sd_valid$city_id),as.factor(sd_valid$wave_id)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+  print(paste("montreal: ",
+              city1_coef[1]," (",city1_CI[1],", ",city1_CI[2],")",sep=""))
+  print(paste("saskatoon: ",
+              city2_coef[1]," (",city2_CI[1],", ",city2_CI[2],")",sep=""))
+  print(paste("vancouver: ",
+              city3_coef[1]," (",city3_CI[1],", ",city3_CI[2],")",sep=""))
+```
+
+#### Plot effect modifiers of interest (Figure 3): Income, employment status and education
+
+Plot interaction effect using effects package (https://cran.r-project.org/web/packages/effects/effects.pdf)
+
+Note: these models are run on person-days with 600+ minutes of wear time and thus we'll control for factors that are unbalanced within this sub-sample
+
+**Create income plot**
+```{r,echo=FALSE,results=FALSE,warning=FALSE}
+# Add a income-wave interaction term to the adjusted model  
+income_covar_valid_final<-glmer.nb(mean_mvpa_sd~ wave_id + city_id + wave_id*income + wearRS +
+                                                age_cat + employment + income +
+                                                mean_temp + total_precip + 
+                                                (1|interact_id),
+                          data=sd_valid[sd_valid$age_cat!="missing",])
+
+# estimate the effect
+income_Inter.HandPick <- effect('wave_id*income', income_covar_valid_final,
+                                            xlevels=list(wave_id = c("wave 1","wave 2"),
+                                            income = c("<$50,000","$50,000 to $99,999","$100,000 or more",
+                                                       "don't know/prefer not to answer"
+                                                       )),
+                                            se=TRUE, confidence.level=.95, typical=mean)
+
+# put results in data frame 
+income_Inter.HandPick <- as.data.frame(income_Inter.HandPick)
+
+# create factor variables for both wave_id and income             
+income_Inter.HandPick$Income <- factor(income_Inter.HandPick$income,
+                      levels=c("<$50,000","$50,000 to $99,999","$100,000 or more","don't know/prefer not to answer"
+                               ),
+                      labels=c("<$50,000","$50,000-$99,999","$100,000+","No answer"
+                               ))
+income_Inter.HandPick$wave <- factor(income_Inter.HandPick$wave_id,
+              levels=c("wave 1","wave 2"),
+              labels=c("Wave 1", "Wave 2"))
+
+# plot the interaction effect
+income_Plot.HandPick<-ggplot(data=income_Inter.HandPick, aes(x=wave, y=fit, group=Income))+
+      geom_point(size=1, aes(color=Income),position=position_dodge(0.5))+
+      ylim(0,100) +
+      geom_errorbar(aes(ymin=lower, ymax=upper,color=Income), width=.3,size=0.6, position=position_dodge(0.5))+
+      scale_colour_grey()+
+      labs(title="Household income")  +
+      guides(color=guide_legend("Income",nrow=4,byrow=TRUE,
+                                 keywidth=0.15,
+                                 keyheight=0.1,
+                                 default.unit="inch"
+                                 )) +
+                     theme_classic() + theme(plot.title=element_text(size=12,
+                                                                     face=2,
+                                                                     hjust=0.5),
+                                       axis.text.x=element_text(size=10,
+                                                              angle = 0,
+                                                              face= "bold"),
+                                       axis.text.y=element_text(size=10,
+                                                              angle = 0),
+                                       legend.title=element_blank(),
+                                       legend.text = element_text(size=8.5,margin = margin(r = 0.24, unit = 'cm')),
+                                       axis.title.x = element_blank(),
+                                       axis.title.y = element_blank(),
+                                       legend.key.size = unit(0.5,"line"),
+                                       legend.position="bottom",
+                                       legend.spacing.x = unit(0.06, 'cm'),
+                                       legend.margin=margin(-5, 0, 0, 0),
+                                       plot.margin = unit(c(12, 5.5, 5, 5.5), "pt"))
+```
+
+**Create education plot**
+```{r,echo=FALSE,results=FALSE,warning=FALSE}
+# Add a education-wave interaction term to the adjusted model 
+education_covar_valid_final<-glmer.nb(mean_mvpa_sd~ wave_id + city_id + wave_id*education + wearRS +
+                                                age_cat + employment + income + education +
+                                                mean_temp + total_precip + 
+                                                (1|interact_id),
+                          data=sd_valid[sd_valid$age_cat!="missing" & sd_valid$education!="don't know/prefer not to answer",])
+
+# estimate the effect
+education_Inter.HandPick <- effect('wave_id*education', education_covar_valid_final,
+                                            xlevels=list(wave_id = c("wave 1","wave 2"),
+                                            education = c("university or graduate degree","secondary school",
+                                                          "trade school or college")),
+                                            se=TRUE, confidence.level=.95, typical=mean)
+
+# put results in data frame 
+education_Inter.HandPick <- as.data.frame(education_Inter.HandPick)
+
+# create factor variables for both wave_id and education level          
+education_Inter.HandPick$Education <- factor(education_Inter.HandPick$education,
+                      levels=c("trade school or college","secondary school","university or graduate degree"),
+                      labels=c("College/trade school","High school","University/grad degree"))
+education_Inter.HandPick$wave <- factor(education_Inter.HandPick$wave_id,
+              levels=c("wave 1","wave 2"),
+              labels=c("Wave 1", "Wave 2"))
+
+education_Plot.HandPick<-ggplot(data=education_Inter.HandPick, aes(x=wave, y=fit, group=Education))+
+      geom_point(size=1, aes(color=Education),position=position_dodge(0.5))+
+      ylim(0,100) +
+      geom_errorbar(aes(ymin=lower, ymax=upper,color=Education), width=.3,size=0.6, position=position_dodge(0.5))+
+      scale_colour_grey()+
+      labs(title="Education level")  +
+       guides(color=guide_legend("Education",nrow=4,byrow=TRUE,
+                                 keywidth=0.15,
+                                 keyheight=0.09,
+                                 default.unit="inch"
+                                 )) +
+                    theme_classic() + theme(plot.title=element_text(size=12,
+                                                                     face=2,
+                                                                     hjust=0.5),
+                                       axis.text.x=element_text(size=10,
+                                                              angle = 0,
+                                                              face= "bold"),
+                                       axis.text.y=element_text(size=10,
+                                                              angle = 0),
+                                       legend.title=element_blank(),
+                                       legend.text = element_text(size=8.5,margin = margin(r = 0.24, unit = 'cm')),
+                                       axis.title.x = element_blank(),
+                                       axis.title.y = element_blank(),
+                                       legend.key.size = unit(0.5,"line"),
+                                       legend.position="bottom",
+                                       legend.spacing.x = unit(0.06, 'cm'),
+                                       legend.margin=margin(-5, 0, 0, 0),
+                                       plot.margin = unit(c(12, 5.5, 10, 5.5), "pt"))
+```
+
+**Create employment figure**
+```{r,echo=FALSE,results=FALSE,warning=FALSE}
+# Add an employment status-wave interaction term to the adjusted model 
+employment_covar_valid_final<-glmer.nb(mean_mvpa_sd~ wave_id + city_id + wave_id*employment + wearRS +
+                                                age_cat + education + income + employment +
+                                                mean_temp + total_precip + 
+                                                (1|interact_id),
+                          data=sd_valid[sd_valid$age_cat!="missing",])
+
+# estimate the effect
+employment_Inter.HandPick <- effect('wave_id*employment', employment_covar_valid_final,
+                                            xlevels=list(wave_id = c("wave 1","wave 2"),
+                                            employment = c("employed","unemployed",
+                                                          "retired and not working","other")),
+                                            se=TRUE, confidence.level=.95, typical=mean)
+
+# put results in data frame 
+employment_Inter.HandPick <- as.data.frame(employment_Inter.HandPick)
+
+# create factor variables for both wave_id and employment status             
+employment_Inter.HandPick$Employment <- factor(employment_Inter.HandPick$employment,
+                      levels=c("employed","unemployed","retired and not working","other"),
+                      labels=c("Employed","Unemployed","Retired","Other"))
+employment_Inter.HandPick$wave <- factor(employment_Inter.HandPick$wave_id,
+              levels=c("wave 1","wave 2"),
+              labels=c("Wave 1", "Wave 2"))
+
+employment_Plot.HandPick<-ggplot(data=employment_Inter.HandPick, aes(x=wave, y=fit, group=Employment))+
+      geom_point(size=1, aes(color=Employment),position=position_dodge(0.5))+
+      ylim(0,100) +
+      geom_errorbar(aes(ymin=lower, ymax=upper,color=Employment), width=.3,size=0.6, position=position_dodge(0.5))+
+      scale_colour_grey()+
+      labs(title="Employment status")  +
+       guides(color=guide_legend("Employment",nrow=4,byrow=TRUE,
+                                 keywidth=0.15,
+                                 keyheight=0.1,
+                                 default.unit="inch"
+                                 )) +
+                     theme_classic() + theme(plot.title=element_text(size=12,
+                                                                     face=2,
+                                                                     hjust=0.5),
+                                       axis.text.x=element_text(size=10,
+                                                              angle = 0,
+                                                              face= "bold"),
+                                       axis.text.y=element_text(size=10,
+                                                              angle = 0),
+                                       legend.title=element_blank(),
+                                       legend.text = element_text(size=8.5,margin = margin(r = 0.24, unit = 'cm')),
+                                       axis.title.x = element_blank(),
+                                       axis.title.y = element_blank(),
+                                       legend.key.size = unit(0.06,"line"),
+                                       legend.position="bottom",
+                                       legend.spacing.x = unit(0.1, 'cm'),
+                                       legend.margin=margin(-5, 0, 0, 0),
+                                       plot.margin = unit(c(12, 5.5, 5, 5.5), "pt"))
+```
+
+
+**Create Figure 3**
+```{r,echo=FALSE,warning=FALSE}
+titleY=ggpubr::text_grob("Daily minutes of moderate-to-vigorous\nphysical activity",size =12,rot=90,face="bold")  
+
+em_figures<-grid.arrange(income_Plot.HandPick,
+                         employment_Plot.HandPick,
+                         education_Plot.HandPick,
+            left=titleY,
+            widths=c(1,1,1),
+            heights=c(1),
+            nrow=1)
+ggsave(em_figures,file="figures//figure3.jpeg",width=175,height=85,units="mm")
+ggsave(em_figures,file="figures//figure3.pdf",width=175,height=85,units="mm")
+ggsave(em_figures,file="submission to IJE//figure3.pdf",width=175,height=85,units="mm")
+```
+
+
+## 4. OBJECTIVE 2: Impact of lockdown stringency on daily MVPA
+
+### A. Main effects 
+
+#### Unadjusted model (row 1 table 3)
+```{r,echo=FALSE,result=FALSE,warning=FALSE}
+  length(sd_pa[sd_pa$wave_id=="wave 2",]$interact_id) # missing 7 observations???
+  length(sd_pa[is.na(sd_pa$stringencyIndex) & sd_pa$wave_id=="wave 2",]$interact_id)
+```
+
+**Model**
+```{r,warning=FALSE}
+# model is missing 7 observations from wave 2?
+  si_all_unadj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                         data=sd_pa[sd_pa$wave_id=="wave 2",]) 
+  summary(si_all_unadj)
+```
+
+**Results**
+```{r,echo=FALSE,warning=FALSE}
+  coefSI<-as.data.frame(summary(si_all_unadj)$coefficients)
+  exp(coefSI[2,]$Estimate)
+  ci_SI_unadj<-exp(confint(si_all_unadj, c("stringencyIndex"), level = 0.95))
+  ci_SI_unadj
+  #exp(confint.merMod(si_all_unadj))
+```
+
+
+#### Fully adjusted (row 2 table 3)
+
+**Model**
+```{r,warning=FALSE}
+  si_all_cov_fully<-glmer.nb(mean_mvpa_sd~ stringencyIndex + wear + city_id + 
+                          mean_temp + total_precip + 
+                          age_cat + 
+                          gender + 
+                          children + 
+                          employment + 
+                          (1|interact_id),
+                          data=sd_pa[sd_pa$gender!="other" & sd_pa$age_cat!="missing" &
+                                     sd_pa$wave_id=="wave 2",])
+  summary(si_all_cov_fully)
+```
+
+**Results**
+```{r,echo=FALSE,warning=FALSE}
+  coefSI<-as.data.frame(summary(si_all_cov_fully)$coefficients)
+  exp(coefSI[2,]$Estimate)
+  ci_SI_adj<-exp(confint(si_all_cov_fully, c("stringencyIndex"), level = 0.95))
+  ci_SI_adj
+  #exp(confint.merMod(si_all_cov_fully))
+```
+
+
+### B. Assessing for effect modification
+
+I'll run stratified models to determine if the effect size or direction of the exposure variable (stringencyIndex) varies across levels of each independent variable. These models will be run on valid person-days (600+ minutes of wear time) from wave 2 only.
+
+**Overall, for reference** 
+```{r,warning=FALSE}
+  si_overall_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id == "wave 2",]) 
+  summary(si_overall_valid_adj)
+# Comparison: 
+  print(paste("overall: ",exp(as.data.frame(summary(si_overall_valid_adj)$coefficients)$Estimate[2])),sep="")
+# CIs:
+  si_overall_CI<-exp(confint(si_overall_valid_adj, c("stringencyIndex"), level = 0.95))
+  print(paste("overall: ",si_overall_CI[1],si_overall_CI[2]),sep="")
+```
+
+**Gender**
+```{r,echo=FALSE,warning=FALSE}
+# models (men, women):
+  si_gender1_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex  + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id == "wave 2" & sd_valid$gender=="man",]) 
+  si_gender2_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex  + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id == "wave 2" & sd_valid$gender=="woman",]) 
+
+# effect estimates:
+  si_gender1_coef<-round(exp(as.data.frame(summary(si_gender1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_gender2_coef<-round(exp(as.data.frame(summary(si_gender2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  si_gender1_CI<-round(exp(confint(si_gender1_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_gender2_CI<-round(exp(confint(si_gender2_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+```
+
+Distribution of person-days by gender
+```{r,echo=FALSE}
+  addmargins(table(as.factor(sd_valid[sd_valid$wave_id=="wave 2",]$gender)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+  print(paste("men: ",si_gender1_coef[1]," (",si_gender1_CI[1],", ",si_gender1_CI[2],")",sep=""))
+  print(paste("women: ",si_gender2_coef[1]," (",si_gender2_CI[1],", ",si_gender2_CI[2],")",sep=""))
+```
+
+
+**Age** 
+```{r,echo=FALSE,warning=FALSE}
+# models (18-29, 30-49, 50-69, 70+) 
+  si_age1_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$age_cat=="18-29",]) 
+  si_age2_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$age_cat=="30-49",]) 
+  si_age3_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$age_cat=="50-69",]) 
+  si_age4_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$age_cat=="70+",]) 
+  
+# effect estimates:
+  si_age1_coef<-round(exp(as.data.frame(summary(si_age1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_age2_coef<-round(exp(as.data.frame(summary(si_age2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_age3_coef<-round(exp(as.data.frame(summary(si_age3_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_age4_coef<-round(exp(as.data.frame(summary(si_age4_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  si_age1_CI<-round(exp(confint(si_age1_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_age2_CI<-round(exp(confint(si_age2_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_age3_CI<-round(exp(confint(si_age3_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_age4_CI<-round(exp(confint(si_age4_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+```
+
+Distribution of person-days by age
+```{r,echo=FALSE}
+addmargins(table(as.factor(sd_valid[sd_valid$wave_id=="wave 2",]$age_cat)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+  print(paste("18-29: ",si_age1_coef[1]," (",si_age1_CI[1],", ",si_age1_CI[2],")",sep=""))
+  print(paste("30-49: ",si_age2_coef[1]," (",si_age2_CI[1],", ",si_age2_CI[2],")",sep=""))
+  print(paste("50-69: ",si_age3_coef[1]," (",si_age3_CI[1],", ",si_age3_CI[2],")",sep=""))
+  print(paste("70+: ",   si_age4_coef[1]," (",si_age4_CI[1],", ",si_age4_CI[2],")",sep=""))
+```
+
+**Income**
+```{r,echo=FALSE,warning=FALSE}
+# models (<50,000; 50-99,999; 100,000+; don't know/prefer not to answer) 
+  si_income1_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$income=="<$50,000",]) 
+  si_income2_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$income=="$50,000 to $99,999",]) 
+  si_income3_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$income=="$100,000 or more",]) 
+  si_income4_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$income=="don't know/prefer not to answer",]) 
+  
+# effect estimates:
+  si_income1_coef<-round(exp(as.data.frame(summary(si_income1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_income2_coef<-round(exp(as.data.frame(summary(si_income2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_income3_coef<-round(exp(as.data.frame(summary(si_income3_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_income4_coef<-round(exp(as.data.frame(summary(si_income4_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  si_income1_CI<-round(exp(confint(si_income1_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_income2_CI<-round(exp(confint(si_income2_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_income3_CI<-round(exp(confint(si_income3_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_income4_CI<-round(exp(confint(si_income4_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+```
+
+Distribution of person-days by income
+```{r,echo=FALSE}
+  addmargins(table(as.factor(sd_valid[sd_valid$wave_id=="wave 2",]$income)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+  print(paste("<$50,000: ",si_income1_coef[1]," (",si_income1_CI[1],", ",si_income1_CI[2],")",sep=""))
+  print(paste("$50,000 to $99,999: ",si_income2_coef[1]," (",si_income2_CI[1],", ",si_income2_CI[2],")",sep=""))
+  print(paste("$100,000 or more: ",si_income3_coef[1]," (",si_income3_CI[1],", ",si_income3_CI[2],")",sep=""))
+  print(paste("don't know/perfer not to answer: ",   si_income4_coef[1]," (",si_income4_CI[1],", ",si_income4_CI[2],")",sep=""))
+```
+
+**Education**
+```{r,echo=FALSE,warning=FALSE}
+# models (university or grad degree, secondary school, trade school or college) 
+  si_education1_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$education=="university or graduate degree",]) 
+  si_education2_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$education=="secondary school",]) 
+  si_education3_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$education=="trade school or college",]) 
+  
+# effect estimates:
+  si_education1_coef<-round(exp(as.data.frame(summary(si_education1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_education2_coef<-round(exp(as.data.frame(summary(si_education2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_education3_coef<-round(exp(as.data.frame(summary(si_education3_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  si_education1_CI<-round(exp(confint(si_education1_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_education2_CI<-round(exp(confint(si_education2_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_education3_CI<-round(exp(confint(si_education3_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+```
+
+Distribution of person-days by education
+```{r,echo=FALSE}
+  addmargins(table(as.factor(sd_valid[sd_valid$wave_id=="wave 2",]$education)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+  print(paste("university or grad degree: ",si_education1_coef[1]," (",si_education1_CI[1],", ",si_education1_CI[2],")",sep=""))
+  print(paste("secondary school: ",si_education2_coef[1]," (",si_education2_CI[1],", ",si_education2_CI[2],")",sep=""))
+  print(paste("trade school or college: ",si_education3_coef[1]," (",si_education3_CI[1],", ",si_education3_CI[2],")",sep=""))
+```
+
+**Employment status** 
+```{r,echo=FALSE,warning=FALSE}
+# models (employed, retired and not working, unemployed, other) 
+  si_employment1_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$employment=="employed",]) 
+  si_employment2_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$employment=="retired and not working",]) 
+  si_employment3_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$employment=="unemployed",]) 
+  si_employment4_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$employment=="other",]) 
+  
+# effect estimates:
+  si_employment1_coef<-round(exp(as.data.frame(summary(si_employment1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_employment2_coef<-round(exp(as.data.frame(summary(si_employment2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_employment3_coef<-round(exp(as.data.frame(summary(si_employment3_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_employment4_coef<-round(exp(as.data.frame(summary(si_employment4_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  si_employment1_CI<-round(exp(confint(si_employment1_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_employment2_CI<-round(exp(confint(si_employment2_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_employment3_CI<-round(exp(confint(si_employment3_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_employment4_CI<-round(exp(confint(si_employment4_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+```
+
+Distribution of person-days by employement status
+```{r,echo=FALSE}
+ addmargins(table(as.factor(sd_valid[sd_valid$wave_id=="wave 2",]$employment)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+print(paste("employed: ",si_employment1_coef[1]," (",si_employment1_CI[1],", ",si_employment1_CI[2],")",sep=""))
+  print(paste("retired and not working: ",si_employment2_coef[1]," (",si_employment2_CI[1],", ",si_employment2_CI[2],")",sep=""))
+  print(paste("unemployed: ",si_employment3_coef[1]," (",si_employment3_CI[1],", ",si_employment3_CI[2],")",sep=""))
+  print(paste("other: ",   si_employment4_coef[1]," (",si_employment4_CI[1],", ",si_employment4_CI[2],")",sep=""))
+```
+
+**Has children**
+```{r,echo=FALSE,warning=FALSE}
+# models (has children living at home, does not have children living at home) 
+  si_children1_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$children=="yes",]) 
+  si_children2_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$children=="no",]) 
+  
+# effect estimates:
+  si_children1_coef<-round(exp(as.data.frame(summary(si_children1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_children2_coef<-round(exp(as.data.frame(summary(si_children2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  si_children1_CI<-round(exp(confint(si_children1_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_children2_CI<-round(exp(confint(si_children2_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+```
+
+Distribution of person-days by employment status
+```{r,echo=FALSE}
+  addmargins(table(as.factor(sd_valid[sd_valid$wave_id=="wave 2",]$children)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+  print(paste("has children at home: ",si_children1_coef[1]," (",si_children1_CI[1],", ",si_children1_CI[2],")",sep=""))
+  print(paste("does not have children at home: ",si_children2_coef[1]," (",si_children2_CI[1],", ",si_children2_CI[2],")",sep=""))
+```
+
+**City**
+```{r,echo=FALSE,warning=FALSE}
+# models (montreal, saskatoon, vancouver) 
+  si_city1_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$city=="montreal",]) 
+  si_city2_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$city=="saskatoon",]) 
+  si_city3_valid_adj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
+                              data=sd_valid[sd_valid$wave_id=="wave 2" & sd_valid$city=="vancouver",]) 
+  
+# effect estimates:
+  si_city1_coef<-round(exp(as.data.frame(summary(si_city1_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_city2_coef<-round(exp(as.data.frame(summary(si_city2_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  si_city3_coef<-round(exp(as.data.frame(summary(si_city3_valid_adj)$coefficients)$Estimate[2]),digits=2)
+  
+# CIs:
+  set.seed(123)
+  si_city1_CI<-round(exp(confint(si_city1_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_city2_CI<-round(exp(confint(si_city2_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+  si_city3_CI<-round(exp(confint(si_city3_valid_adj, c("stringencyIndex"), level = 0.95,method="boot")),digits=2)
+```
+
+Distribution of person-days by city
+```{r,echo=FALSE}
+  addmargins(table(as.factor(sd_valid[sd_valid$wave_id=="wave 2",]$city)))
+```
+
+Effect estimate and CI for each strata
+```{r,echo=FALSE}
+  print(paste("montreal: ",si_city1_coef[1]," (",si_city1_CI[1],", ",si_city1_CI[2],")",sep=""))
+  print(paste("saskatoon: ",si_city2_coef[1]," (",si_city2_CI[1],", ",si_city2_CI[2],")",sep=""))
+  print(paste("vancouver: ",si_city3_coef[1]," (",si_city3_CI[1],", ",si_city3_CI[2],")",sep=""))
+```
+
+## 5. Supplementary Figure 1 (flowchart)
+
+*Objective 1*
+
+Full sample
+```{r}
+length(sd_pa$date)
+```
+
+Unadjusted model (all person-days with 600+ minutes of wear time)
+```{r}
+length(sd_valid$date)
+table(sd_valid$wave_id)
+```
+Adjusted model (complete case; no missing data for confounders)
+```{r}
+# models adjusted for wave_id + city_id + wearRS + age_cat + employment + income + mean_temp + total_precip -- no missing data for wave_id, city_id, employment status, income... look for number of missing for each of the remaining variables
+
+print("age")
+summary(sd_valid$age_cat)
+
+print("mean_temp")
+summary(sd_valid$mean_temp)
+
+print("total_precip")
+summary(sd_valid$total_precip)
+
+# any with multiple missing?
+length(sd_valid[is.na(sd_valid$total_precip) & is.na(sd_valid$mean_temp),]$date) # 88 missing temp are also missing precip and vice versa
+length(sd_valid[is.na(sd_valid$age_cat) & is.na(sd_valid$mean_temp),]$date) # no overlap between missing temp/precip and age
+
+length(sd_valid[!is.na(sd_valid$age_cat) & !is.na(sd_valid$mean_temp),]$date)
+
+table(sd_valid[!is.na(sd_valid$age_cat) & !is.na(sd_valid$mean_temp),]$wave_id)
+```
+
+*Sensitivity analysis 1*
+
+Unadjusted
+```{r}
+length(sd_valid_both$date)
+```
+
+Adjusted
+```{r}
+print("age")
+summary(sd_valid_both$age_cat)
+
+print("mean_temp")
+summary(sd_valid_both$mean_temp)
+
+print("total_precip")
+summary(sd_valid_both$total_precip)
+```
+*Sensitivity analysis 2*
+
+Unadjusted
+```{r}
+length(sens_valid$date)
+```
+
+Adjusted
+```{r}
+print("age")
+summary(sens_valid$age_cat) # don't need to check for missingness in weather data since we aren't controlling for weather in this model
+```
+
+*Objective 2*
+
+Unadjusted model (all wave 2 person-days with 600+ minutes of wear time)
+```{r}
+length(sd_valid[sd_valid$wave_id=="wave 2",]$date)
+```
+
+Adjusted model (complete case; no missing data for confounders)
+```{r}
+print("age")
+summary(sd_valid[sd_valid$wave_id=="wave 2",]$mean_temp)
+```
+
