@@ -862,6 +862,7 @@ Reformat column names to match the sd_all dataframe (format city_id to be all lo
                               min_temp=min_temp_c,
                               total_precip=total_precip_mm)
 ```
+
 Explore variables available
 ```{r}
   weather<-weather %>% dplyr::select(date,mean_temp,total_precip,city_id)
@@ -874,16 +875,11 @@ Merge with sd data
 
 # 2. person days where wearing == 1
   sd_wearing<-merge(sd_wearing,weather,by=c("date","city_id"),all.x=TRUE)
-  
-# 3. person days where wearing == 1 & in_city == 1
-  sd_wearingCity<-merge(sd_wearingCity,weather,by=c("date","city_id"),all.x=TRUE)
-  rm(weather)
 ```
   
 ## 7. Export data
 
 ```{r}
-  write.csv(sd_all,"sensdoc-all-2023.csv",row.names = FALSE)
-  write.csv(sd_wearingCity,"sensdoc-wearingCity-2023.csv",row.names = FALSE)
-  write.csv(sd_wearing,"sensdoc-wearing-2023.csv",row.names = FALSE)
+  write.csv(sd_all,"Data//final-for-analysis//sensdoc-all-2023.csv",row.names = FALSE)
+  write.csv(sd_wearing,"Data//final-for-analysis//sensdoc-wearing-2023.csv",row.names = FALSE)
 ```
