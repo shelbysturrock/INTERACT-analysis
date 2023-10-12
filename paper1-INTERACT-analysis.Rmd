@@ -1038,8 +1038,7 @@ ggsave(em_figures,file="submission to IJE//figure3.png",width=175,height=85,unit
                           children + 
                           employment + 
                           (1|interact_id),
-                          data=sd_valid[sd_valid$gender!="other" & sd_valid$age_cat!="missing" &
-                                     sd_valid$wave_id=="wave 2",])
+                          data=sd_valid[sd_valid$wave_id=="wave 2",])
 ```
 
 **Results**
