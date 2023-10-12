@@ -38,7 +38,7 @@ output:
 
 Read in SD TOP: 
 ```{r,results="hide"}
-  sd_pa<-read.csv("sensdoc-wearing-2023.csv") # 5575
+  sd_pa<-read.csv("Data//final-for-analysis//sensdoc-wearing-2023.csv") # 5575
 ```
 
 ### Set levels for categorical variables (and re-categorize per MW comments)
@@ -186,8 +186,8 @@ Plot of stringency index over time (in black and white)
 
   si_plot
   
-  ggsave(si_plot,file="figures//figure4.pdf",width=5.5,height=3.25)
-  ggsave(si_plot,file="submission to IJE//figure4.pdf",width=175,height=95,unit="mm") # for IJBNPA
+  ggsave(si_plot,file="figures//figure4.png",width=5.5,height=3.25)
+  ggsave(si_plot,file="submission to IJE//figure4.png",width=175,height=95,unit="mm") # for IJBNPA
 ```
 
 
@@ -223,7 +223,7 @@ different: wear, city, age, income, employment status, education
    #print(kableone(balance_days_by_wave_valid,quote=TRUE,noSpaces=TRUE))
 ```
 
-*Columns 5 and 6: valid participant-days from wave 2, stratified by stringency index (sd_valid)*: 
+*Columns 5, 6 and 7: valid participant-days from wave 2, stratified by stringency index (sd_valid)*: 
 CLEAR imbalances of gender, age, kids, education and employment status (not income)
 ```{r, echo=FALSE}
   balance_by_SI_full<-CreateTableOne(vars=c(#"mean_wave_mvpa","mean_wave_wear",
@@ -350,8 +350,8 @@ names(wave.labs)<-c("wave 1","wave 2")
                #top=titleMain, # removing title for IJBNPA (titles should be in the text, not in the figure)
                left=titleY)
   
-  ggsave(figure1,file="figures//figure1.pdf",width=6,height=4)
-  ggsave(figure1,file="submission to IJE//figure1.pdf",width=175,height=100,unit="mm")
+  ggsave(figure1,file="figures//figure1.png",width=6,height=4)
+  ggsave(figure1,file="submission to IJE//figure1.png",width=175,height=100,unit="mm")
 ```
 
 **Figure 2:** Trend in daily minutes of moderate-to-vigorous physical activity for each wave
@@ -387,8 +387,8 @@ names(wave.labs)<-c("wave 1","wave 2")
                                 legend.margin=margin(-3, 0, 0, 0),
                                 legend.text = element_text(size=8,margin = margin(r = 0.4, unit = 'cm'))) 
   figure2
-  ggsave(figure2,file="figure2.pdf",width=6,height=4)
-  ggsave(figure2,file="submission to IJE//figure2.pdf",width=175,height=120,unit="mm")
+  ggsave(figure2,file="figure2.png",width=6,height=4)
+  ggsave(figure2,file="submission to IJE//figure2.png",width=175,height=120,unit="mm")
 ```
 
 
@@ -808,8 +808,9 @@ Plot interaction effect using effects package (https://cran.r-project.org/web/pa
 
 Note: these models are run on person-days with 600+ minutes of wear time and thus we'll control for factors that are unbalanced within this sub-sample
 
-**Create income plot**
 ```{r,echo=FALSE,results=FALSE,warning=FALSE}
+# income plot
+
 # Add a income-wave interaction term to the adjusted model  
 income_covar_valid_final<-glmer.nb(mean_mvpa_sd~ wave_id + city_id + wave_id*income + wearRS +
                                                 age_cat + employment + income +
@@ -869,8 +870,9 @@ income_Plot.HandPick<-ggplot(data=income_Inter.HandPick, aes(x=wave, y=fit, grou
                                        plot.margin = unit(c(12, 5.5, 5, 5.5), "pt"))
 ```
 
-**Create education plot**
 ```{r,echo=FALSE,results=FALSE,warning=FALSE}
+# education plot 
+
 # Add a education-wave interaction term to the adjusted model 
 education_covar_valid_final<-glmer.nb(mean_mvpa_sd~ wave_id + city_id + wave_id*education + wearRS +
                                                 age_cat + employment + income + education +
@@ -926,8 +928,9 @@ education_Plot.HandPick<-ggplot(data=education_Inter.HandPick, aes(x=wave, y=fit
                                        plot.margin = unit(c(12, 5.5, 10, 5.5), "pt"))
 ```
 
-**Create employment figure**
 ```{r,echo=FALSE,results=FALSE,warning=FALSE}
+# employment plot
+
 # Add an employment status-wave interaction term to the adjusted model 
 employment_covar_valid_final<-glmer.nb(mean_mvpa_sd~ wave_id + city_id + wave_id*employment + wearRS +
                                                 age_cat + education + income + employment +
@@ -995,9 +998,8 @@ em_figures<-grid.arrange(income_Plot.HandPick,
             widths=c(1,1,1),
             heights=c(1),
             nrow=1)
-ggsave(em_figures,file="figures//figure3.jpeg",width=175,height=85,units="mm")
-ggsave(em_figures,file="figures//figure3.pdf",width=175,height=85,units="mm")
-ggsave(em_figures,file="submission to IJE//figure3.pdf",width=175,height=85,units="mm")
+ggsave(em_figures,file="figures//figure3.png",width=175,height=85,units="mm")
+ggsave(em_figures,file="submission to IJE//figure3.png",width=175,height=85,units="mm")
 ```
 
 
@@ -1006,17 +1008,13 @@ ggsave(em_figures,file="submission to IJE//figure3.pdf",width=175,height=85,unit
 ### A. Main effects 
 
 #### Unadjusted model (row 1 table 3)
-```{r,echo=FALSE,result=FALSE,warning=FALSE}
-  length(sd_pa[sd_pa$wave_id=="wave 2",]$interact_id) # missing 7 observations???
-  length(sd_pa[is.na(sd_pa$stringencyIndex) & sd_pa$wave_id=="wave 2",]$interact_id)
-```
 
 **Model**
 ```{r,warning=FALSE}
 # model is missing 7 observations from wave 2?
   si_all_unadj<-glmer.nb(mean_mvpa_sd~ stringencyIndex + (1|interact_id),
-                         data=sd_pa[sd_pa$wave_id=="wave 2",]) 
-  summary(si_all_unadj)
+                         data=sd_valid[sd_valid$wave_id=="wave 2",]) 
+  # summary(si_all_unadj)
 ```
 
 **Results**
@@ -1040,9 +1038,8 @@ ggsave(em_figures,file="submission to IJE//figure3.pdf",width=175,height=85,unit
                           children + 
                           employment + 
                           (1|interact_id),
-                          data=sd_pa[sd_pa$gender!="other" & sd_pa$age_cat!="missing" &
-                                     sd_pa$wave_id=="wave 2",])
-  summary(si_all_cov_fully)
+                          data=sd_valid[sd_valid$gender!="other" & sd_valid$age_cat!="missing" &
+                                     sd_valid$wave_id=="wave 2",])
 ```
 
 **Results**
@@ -1317,7 +1314,7 @@ Effect estimate and CI for each strata
 
 ## 5. Supplementary Figure 1 (flowchart)
 
-*Objective 1*
+**Objective 1**
 
 Full sample
 ```{r}
@@ -1329,6 +1326,7 @@ Unadjusted model (all person-days with 600+ minutes of wear time)
 length(sd_valid$date)
 table(sd_valid$wave_id)
 ```
+
 Adjusted model (complete case; no missing data for confounders)
 ```{r}
 # models adjusted for wave_id + city_id + wearRS + age_cat + employment + income + mean_temp + total_precip -- no missing data for wave_id, city_id, employment status, income... look for number of missing for each of the remaining variables
@@ -1351,7 +1349,7 @@ length(sd_valid[!is.na(sd_valid$age_cat) & !is.na(sd_valid$mean_temp),]$date)
 table(sd_valid[!is.na(sd_valid$age_cat) & !is.na(sd_valid$mean_temp),]$wave_id)
 ```
 
-*Sensitivity analysis 1*
+**Sensitivity analysis 1**
 
 Unadjusted
 ```{r}
@@ -1360,16 +1358,12 @@ length(sd_valid_both$date)
 
 Adjusted
 ```{r}
-print("age")
 summary(sd_valid_both$age_cat)
-
-print("mean_temp")
 summary(sd_valid_both$mean_temp)
-
-print("total_precip")
 summary(sd_valid_both$total_precip)
 ```
-*Sensitivity analysis 2*
+
+**Sensitivity analysis 2**
 
 Unadjusted
 ```{r}
@@ -1378,11 +1372,10 @@ length(sens_valid$date)
 
 Adjusted
 ```{r}
-print("age")
 summary(sens_valid$age_cat) # don't need to check for missingness in weather data since we aren't controlling for weather in this model
 ```
 
-*Objective 2*
+**Objective 2**
 
 Unadjusted model (all wave 2 person-days with 600+ minutes of wear time)
 ```{r}
@@ -1391,7 +1384,6 @@ length(sd_valid[sd_valid$wave_id=="wave 2",]$date)
 
 Adjusted model (complete case; no missing data for confounders)
 ```{r}
-print("age")
 summary(sd_valid[sd_valid$wave_id=="wave 2",]$mean_temp)
 ```
 
