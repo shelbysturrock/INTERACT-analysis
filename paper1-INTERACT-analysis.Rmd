@@ -113,6 +113,12 @@ Create categorical stringency index, for assessing balance across levels of stri
   sd_ppl<-distinct(sd_ppl)
   table(sd_ppl$wave_id,sd_ppl$city_id) # one participant from Saskatoon in wave 1 has gone missing?
 ```
+total unique particiapnts across both waves
+```{r}
+  length(unique(sd_ppl$interact_id))
+  table(sd_ppl$wave_id)
+```
+
 
 *sd_valid: Participant-days of data with >= 600 minutes of wear time*: this is used in the main analyses and table 1
 ```{r}
@@ -129,6 +135,10 @@ Create categorical stringency index, for assessing balance across levels of stri
   table(sd_ppl_valid$wave_id) # one participant from Saskatoon in wave 1 has gone missing?
 ```
 
+total unique particiapnts across both waves
+```{r}
+  length(unique(sd_ppl_valid$interact_id))
+```
 
 *sd_valid_both: valid person-days from participants that contributed at least one day of VALID data in both waves* this is used for sensitivity analysis I: filtered to valid person-days (sd_valid) and then filtered to participants with data in both waves (sd_valid_both) 
 ```{r}
@@ -181,13 +191,12 @@ Plot of stringency index over time (in black and white)
                  axis.title = element_text(face="bold",size=9),
                  axis.text = element_text(size=8),
                  plot.title = element_text(face="bold",size=10,hjust=0.5)) +
-           annotate(geom="text", x=as.Date('2020-12-04'), y=10, label="Wave 2 data collection period",
+           annotate(geom="text", x=as.Date('2020-12-04'), y=10, label="Phase 2 data collection period",
                     color="grey30",size=2.75)
 
   si_plot
   
-  ggsave(si_plot,file="figures//figure4.png",width=5.5,height=3.25)
-  ggsave(si_plot,file="submission to IJE//figure4.png",width=175,height=95,unit="mm") # for IJBNPA
+  ggsave(si_plot,file="figures//suppFigure3-20240909.png",width=5.5,height=3.25)
 ```
 
 
@@ -281,7 +290,7 @@ Rescale temperature and precipitation
 
 **Figure 1**: Distribution of daily minutes of wear time and moderate-to-vigorous physical activity among valid person-days, by wave
 ```{r,echo=FALSE}
-wave.labs<-c("Wave 1","Wave 2")
+wave.labs<-c("Phase 1","Phase 2")
 names(wave.labs)<-c("wave 1","wave 2")
 
   wear_plot<-ggplot(sd_valid,aes(x=wear)) + 
@@ -289,17 +298,12 @@ names(wave.labs)<-c("wave 1","wave 2")
     theme_classic() +
     labs(x="Minutes",
          y="Frequency",
-         title="Wear time" #,
-         #subtitle="Wave 1 (dark blue) vs. Wave 2 (light blue)"
-         ) +
-    geom_vline(xintercept=600,color="black",linetype="dashed") +
+         title="Wear time") +
+    #geom_vline(xintercept=600,color="black",linetype="dashed") +
     facet_grid(vars(wave_id),
                labeller = labeller(wave_id=wave.labs)) +
-    # scale_fill_manual(values=c("wave 1"="#0a9ffe", # green = "#81DA66"
-    #                             "wave 2"="#fe7701"), # darker orange #fe7701 #ff8c09
-    #                    labels=c("Wave 1","Wave 2")) + 
-    scale_fill_grey(labels=c("Wave 1","Wave 2")) +
-    scale_color_grey(labels=c("Wave 1","Wave 2"))+
+    scale_fill_grey(labels=c("Phase 1","Phase 2")) +
+    scale_color_grey(labels=c("Phase 1","Phase 2"))+
     theme(axis.title.x = element_text(face="bold",
                                        size=10),
           axis.text.x = element_text(angle=90,vjust = 0.5, hjust=1,size=8),
@@ -318,16 +322,11 @@ names(wave.labs)<-c("wave 1","wave 2")
     theme_classic() +
     labs(x="Minutes",
          y="Frequency",
-         title="Moderate-to-vigorous physical activity" #,
-         #subtitle="Wave 1 (dark blue) vs. Wave 2 (light blue)"
-         ) +
+         title="Moderate-to-vigorous physical activity") +
     facet_grid(vars(wave_id),
                labeller = labeller(wave_id=wave.labs)) +
-    # scale_fill_manual(values=c("wave 1"="#0a9ffe", # green = "#81DA66"
-    #                             "wave 2"="#fe7701"), # darker orange #fe7701 #ff8c09
-    #                    labels=c("Wave 1","Wave 2")) + 
-    scale_fill_grey(labels=c("Wave 1","Wave 2")) +
-    scale_color_grey(labels=c("Wave 1","Wave 2"))+
+    scale_fill_grey(labels=c("Phase 1","Phase 2")) +
+    scale_color_grey(labels=c("Phase 1","Phase 2"))+
     theme(axis.title.x = element_text(face="bold",
                                        size=10),
           axis.text.x = element_text(angle=90,vjust = 0.5, hjust=1,size=8),
@@ -341,39 +340,34 @@ names(wave.labs)<-c("wave 1","wave 2")
           legend.position="none",
           strip.text.y = element_text(face=2)) 
   
-  # titleMain=ggpubr::text_grob("Distribution of daily minutes of wear time and moderate-to-vigorous physical activity:\nWave 1 (2018-2019) vs. Wave 2 (2020-2021)\n",
-  #                             size =10,face="bold")  
   titleY=ggpubr::text_grob("Frequency",
                             size =10,rot=90,face="bold")  
   
-  figure1<-grid.arrange(wear_plot,mvpa_plot,ncol=2,
+  suppFigure2<-grid.arrange(wear_plot,mvpa_plot,ncol=2,
                #top=titleMain, # removing title for IJBNPA (titles should be in the text, not in the figure)
                left=titleY)
   
-  ggsave(figure1,file="figures//figure1.png",width=6,height=4)
-  ggsave(figure1,file="submission to IJE//figure1.png",width=175,height=100,unit="mm")
+  ggsave(suppFigure2,file="figures//suppFigure2-20240909.png",width=6,height=4)
 ```
 
-**Figure 2:** Trend in daily minutes of moderate-to-vigorous physical activity for each wave
+**Figure 1:** Trend in daily minutes of moderate-to-vigorous physical activity for each wave
 ```{r,echo=FALSE,warning=FALSE}
   sd_valid$doy3<-sd_valid$date
   sd_valid$doy3<-gsub("2018|2020","2000",sd_valid$doy3)
   sd_valid$doy3<-gsub("2019|2021","2001",sd_valid$doy3)
   sd_valid$doy3<-as.Date(sd_valid$doy3)
   
-  figure2<-ggplot(sd_valid[sd_valid$wave_id=="wave 1",],aes(x=doy3,y=mean_mvpa_sd,color=wave_id)) +
+  figure1<-ggplot(sd_valid[sd_valid$wave_id=="wave 1",],aes(x=doy3,y=mean_mvpa_sd,color=wave_id)) +
                           geom_point(alpha=0.15,size=1)+
                           geom_point(data=sd_valid[sd_valid$wave_id=="wave 2",],aes(x=doy3,y=mean_mvpa_sd),
                                      alpha=0.15,size=1) +
                           scale_colour_manual(values=c("wave 1"="grey65",
                                                        "wave 2"="black"),
-                                              labels=c("Wave 1 (2018-2019)","Wave 2 (2020-2021)")) +
+                                              labels=c("  Phase 1 (2018-2019)","  Phase 2 (2020-2021)")) +
                           geom_smooth(method=lm)+
                           geom_smooth(data=sd_valid[sd_valid$wave_id=="wave 2",],aes(x=doy3,y=mean_mvpa_sd),method=lm) +
                           theme_classic()+
-                          labs(#title = "Daily minutes of moderate-to-vigorous physical activity by day of the year: ", # removing title for IJBNPA
-                               #subtitle = "Wave 1 (2018-2019) vs. Wave 2 (2020-2021)",
-                               y = "Daily minutes of moderate-to-vigorous physical activity",
+                          labs(y = "Daily minutes of moderate-to-vigorous physical activity",
                                x = "Date")+
                           guides(color=guide_legend("")) +
                           theme(axis.title = element_text(face="bold",size=10),
@@ -386,9 +380,8 @@ names(wave.labs)<-c("wave 1","wave 2")
                                 legend.spacing.x = unit(0.25, 'cm'),
                                 legend.margin=margin(-3, 0, 0, 0),
                                 legend.text = element_text(size=8,margin = margin(r = 0.4, unit = 'cm'))) 
-  figure2
-  ggsave(figure2,file="figure2.png",width=6,height=4)
-  ggsave(figure2,file="submission to IJE//figure2.png",width=175,height=120,unit="mm")
+  figure1
+  ggsave(figure1,file="figures//figure1-20240909.png",width=6,height=4.5)
 ```
 
 
@@ -426,13 +419,14 @@ names(wave.labs)<-c("wave 1","wave 2")
   kableone(balance_days_by_wave_valid)
 ```
 
-*Model: Adjusting for city, age, employment status, income, temp, precipitation and wear time*
+*Model: Adjusting for city, age, employment status, income, education, temp, precipitation and wear time*
 ```{r,warning=FALSE}
   wave_covar_valid_fully<-glmer.nb(mean_mvpa_sd~ wave_id + city_id + wearRS +
-                                                 age_cat + employment + income +
-                                                 mean_temp + total_precip + 
+                                                 age_cat + employment + income + 
+                                                 mean_temp + total_precip + education +
                                                  (1|interact_id),
                           data=sd_valid[sd_valid$age_cat!="missing",])
+summary(wave_covar_valid_fully)
 ```
 
 *Results*
@@ -464,6 +458,7 @@ Participants-days from participants that contributed data in both waves with 600
                                               mean_temp + total_precip + wear +
                                        (1|interact_id),
                           data=sd_valid_both) 
+summary(both_valid_adj_wear)
 ```
 
 **Results**
@@ -802,7 +797,7 @@ Effect estimate and CI for each strata
               city3_coef[1]," (",city3_CI[1],", ",city3_CI[2],")",sep=""))
 ```
 
-#### Plot effect modifiers of interest (Figure 3): Income, employment status and education
+#### Plot effect modifiers of interest (Figure 2): Income, employment status and education
 
 Plot interaction effect using effects package (https://cran.r-project.org/web/packages/effects/effects.pdf)
 
@@ -813,7 +808,7 @@ Note: these models are run on person-days with 600+ minutes of wear time and thu
 
 # Add a income-wave interaction term to the adjusted model  
 income_covar_valid_final<-glmer.nb(mean_mvpa_sd~ wave_id + city_id + wave_id*income + wearRS +
-                                                age_cat + employment + income +
+                                                age_cat + employment + income + education +
                                                 mean_temp + total_precip + 
                                                 (1|interact_id),
                           data=sd_valid[sd_valid$age_cat!="missing",])
@@ -837,7 +832,7 @@ income_Inter.HandPick$Income <- factor(income_Inter.HandPick$income,
                                ))
 income_Inter.HandPick$wave <- factor(income_Inter.HandPick$wave_id,
               levels=c("wave 1","wave 2"),
-              labels=c("Wave 1", "Wave 2"))
+              labels=c("Phase 1", "Phase 2"))
 
 # plot the interaction effect
 income_Plot.HandPick<-ggplot(data=income_Inter.HandPick, aes(x=wave, y=fit, group=Income))+
@@ -896,7 +891,7 @@ education_Inter.HandPick$Education <- factor(education_Inter.HandPick$education,
                       labels=c("College/trade school","High school","University/grad degree"))
 education_Inter.HandPick$wave <- factor(education_Inter.HandPick$wave_id,
               levels=c("wave 1","wave 2"),
-              labels=c("Wave 1", "Wave 2"))
+              labels=c("Phase 1", "Phase 2"))
 
 education_Plot.HandPick<-ggplot(data=education_Inter.HandPick, aes(x=wave, y=fit, group=Education))+
       geom_point(size=1, aes(color=Education),position=position_dodge(0.5))+
@@ -933,7 +928,7 @@ education_Plot.HandPick<-ggplot(data=education_Inter.HandPick, aes(x=wave, y=fit
 
 # Add an employment status-wave interaction term to the adjusted model 
 employment_covar_valid_final<-glmer.nb(mean_mvpa_sd~ wave_id + city_id + wave_id*employment + wearRS +
-                                                age_cat + education + income + employment +
+                                                age_cat + education + income + employment + 
                                                 mean_temp + total_precip + 
                                                 (1|interact_id),
                           data=sd_valid[sd_valid$age_cat!="missing",])
@@ -954,7 +949,7 @@ employment_Inter.HandPick$Employment <- factor(employment_Inter.HandPick$employm
                       labels=c("Employed","Unemployed","Retired","Other"))
 employment_Inter.HandPick$wave <- factor(employment_Inter.HandPick$wave_id,
               levels=c("wave 1","wave 2"),
-              labels=c("Wave 1", "Wave 2"))
+              labels=c("Phase 1", "Phase 2"))
 
 employment_Plot.HandPick<-ggplot(data=employment_Inter.HandPick, aes(x=wave, y=fit, group=Employment))+
       geom_point(size=1, aes(color=Employment),position=position_dodge(0.5))+
@@ -987,7 +982,7 @@ employment_Plot.HandPick<-ggplot(data=employment_Inter.HandPick, aes(x=wave, y=f
 ```
 
 
-**Create Figure 3**
+**Create Figure 2**
 ```{r,echo=FALSE,warning=FALSE}
 titleY=ggpubr::text_grob("Daily minutes of moderate-to-vigorous\nphysical activity",size =12,rot=90,face="bold")  
 
@@ -998,8 +993,7 @@ em_figures<-grid.arrange(income_Plot.HandPick,
             widths=c(1,1,1),
             heights=c(1),
             nrow=1)
-ggsave(em_figures,file="figures//figure3.png",width=175,height=85,units="mm")
-ggsave(em_figures,file="submission to IJE//figure3.png",width=175,height=85,units="mm")
+ggsave(em_figures,file="figures//figure2-20240909.png",width=175,height=85,units="mm")
 ```
 
 
@@ -1031,12 +1025,12 @@ ggsave(em_figures,file="submission to IJE//figure3.png",width=175,height=85,unit
 
 **Model**
 ```{r,warning=FALSE}
-  si_all_cov_fully<-glmer.nb(mean_mvpa_sd~ stringencyIndex + wear + city_id + 
+  si_all_cov_fully<-glmer.nb(mean_mvpa_sd~ stringencyIndex + city_id + 
                           mean_temp + total_precip + 
                           age_cat + 
                           gender + 
                           children + 
-                          employment + 
+                          employment + income +
                           (1|interact_id),
                           data=sd_valid[sd_valid$wave_id=="wave 2",])
 ```
