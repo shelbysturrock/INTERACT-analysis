@@ -216,6 +216,20 @@ Plot of stringency index over time (in black and white)
   #print(kableone(balance_ppl_by_wave_full,quote=TRUE,noSpaces=TRUE))
 ```
 
+Valid days of data per person -- wave 1
+```{r}
+sd_valid_per_person<-sd_valid %>% group_by(interact_id,wave_id) %>% mutate(rows=length(interact_id)) %>% 
+                     dplyr::select(interact_id,rows) %>% distinct()
+mean(sd_valid_per_person[sd_valid_per_person$wave_id=="wave 1",]$rows)
+sd(sd_valid_per_person[sd_valid_per_person$wave_id=="wave 1",]$rows)
+```
+
+Valid days of data per person -- wave 2
+```{r}
+mean(sd_valid_per_person[sd_valid_per_person$wave_id=="wave 2",]$rows)
+sd(sd_valid_per_person[sd_valid_per_person$wave_id=="wave 2",]$rows)
+```
+
 *Columns 3 and 4: valid person-days, by wave (sd_valid)*
 Wear time and city are very different between waves. Some differences in age (older in wave 2), some differences in income (fewer young people, more older people in wave 2) (vs. sd_pa: all person-days, by wave)
 filtering out invalid days introduces an imbalance in education levels
